@@ -1,66 +1,142 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { supabase } from "@/lib/supabaseClient";
+
 export default function DashboardPage() {
+  const [amount, setAmount] = useState("");
+  const [category, setCategory] = useState("");
+  const [description, setDescription] = useState("");
+  const [expenses, setExpenses] = useState<any[]>([]);
+
+  const fetchExpenses = async () => {
+    const { data } = await supabase
+      .from("expenses")
+      .select("*")
+      .order("created_at", { ascending: false });
+
+    if (data) setExpenses(data);
+  };
+
+  useEffect(() => {
+    fetchExpenses();
+  }, []);
+
+  const handleAddExpense = async () => {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) return;
+
+    await supabase.from("expenses").insert([
+      {
+        user_id: user.id,
+        amount: Number(amount),
+        category,
+        description,
+        date: new Date(),
+      },
+    ]);
+
+    setAmount("");
+    setCategory("");
+    setDescription("");
+
+    fetchExpenses();
+  };
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 text-slate-900 transition-colors dark:text-slate-100">
+      {/* Header */}
       <div className="flex flex-col gap-2">
-        <h1 className="text-2xl font-semibold tracking-tight text-slate-50 sm:text-3xl">
+        <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
           Dashboard
         </h1>
-        <p className="max-w-xl text-sm text-slate-300 sm:text-base">
-          High-level view of your spend, income, and shared balances across all
-          of MoneyMap.
+        <p className="max-w-xl text-sm text-slate-600 dark:text-slate-300 sm:text-base">
+          High-level view of your spend and balances across MoneyMap.
         </p>
       </div>
 
+      {/* Add Expense */}
+      <div className="rounded-2xl border border-slate-200/80 bg-white p-4 dark:border-slate-800/80 dark:bg-slate-950/80">
+        <p className="text-xs font-medium text-slate-600 dark:text-slate-400 mb-3">
+          Add Expense
+        </p>
+        <div className="grid gap-3 sm:grid-cols-3">
+          <input
+            type="number"
+            placeholder="Amount"
+            className="rounded-lg border p-2 text-sm dark:bg-slate-900"
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+          />
+          <input
+            type="text"
+            placeholder="Category"
+            className="rounded-lg border p-2 text-sm dark:bg-slate-900"
+            value={category}
+            onChange={(e) => setCategory(e.target.value)}
+          />
+          <input
+            type="text"
+            placeholder="Description"
+            className="rounded-lg border p-2 text-sm dark:bg-slate-900"
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+          />
+        </div>
+        <button
+          onClick={handleAddExpense}
+          className="mt-3 rounded-lg bg-blue-600 px-4 py-2 text-sm text-white"
+        >
+          Add
+        </button>
+      </div>
+
+      {/* Stat Cards (still placeholder for now) */}
       <div className="grid gap-4 md:grid-cols-3">
-        <div className="rounded-2xl border border-slate-800/80 bg-slate-950/80 p-4">
-          <p className="text-xs font-medium text-slate-400">This month</p>
-          <p className="mt-2 text-2xl font-semibold text-slate-50">$2,450</p>
-          <p className="mt-1 text-xs text-emerald-400">On track · 82% of plan</p>
+        <div className="rounded-2xl border bg-white p-4 dark:bg-slate-950/80">
+          <p className="text-xs text-slate-500">This month</p>
+          <p className="mt-2 text-2xl font-semibold">$0.00</p>
         </div>
-        <div className="rounded-2xl border border-slate-800/80 bg-slate-950/80 p-4">
-          <p className="text-xs font-medium text-slate-400">
-            Upcoming recurring
-          </p>
-          <p className="mt-2 text-2xl font-semibold text-slate-50">$640</p>
-          <p className="mt-1 text-xs text-slate-400">
-            Subscriptions, rent, utilities
+        <div className="rounded-2xl border bg-white p-4 dark:bg-slate-950/80">
+          <p className="text-xs text-slate-500">Total Expenses</p>
+          <p className="mt-2 text-2xl font-semibold">
+            $
+            {expenses.reduce((acc, exp) => acc + Number(exp.amount), 0)}
           </p>
         </div>
-        <div className="rounded-2xl border border-slate-800/80 bg-slate-950/80 p-4">
-          <p className="text-xs font-medium text-slate-400">Group balance</p>
-          <p className="mt-2 text-2xl font-semibold text-slate-50">+$120</p>
-          <p className="mt-1 text-xs text-slate-400">
-            You&apos;re owed across SplitMap groups
-          </p>
+        <div className="rounded-2xl border bg-white p-4 dark:bg-slate-950/80">
+          <p className="text-xs text-slate-500">Entries</p>
+          <p className="mt-2 text-2xl font-semibold">{expenses.length}</p>
         </div>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
-        <div className="rounded-2xl border border-slate-800/80 bg-slate-950/80 p-4">
-          <div className="flex items-center justify-between">
-            <p className="text-xs font-medium text-slate-300">
-              Spending by category
-            </p>
-            <span className="text-[11px] text-slate-500">Placeholder view</span>
-          </div>
-          <div className="mt-4 h-40 rounded-xl bg-slate-900/80" />
-        </div>
-        <div className="rounded-2xl border border-slate-800/80 bg-slate-950/80 p-4">
-          <p className="text-xs font-medium text-slate-300">Recent activity</p>
-          <div className="mt-3 space-y-2 text-xs text-slate-300">
-            <div className="flex items-center justify-between rounded-lg bg-slate-900/80 px-3 py-2">
-              <span>Groceries · Split with Roommates</span>
-              <span className="font-medium text-emerald-400">-$84.20</span>
-            </div>
-            <div className="flex items-center justify-between rounded-lg bg-slate-900/80 px-3 py-2">
-              <span>Salary · Acme Corp</span>
-              <span className="font-medium text-emerald-400">+$3,200.00</span>
-            </div>
-            <div className="flex items-center justify-between rounded-lg bg-slate-900/80 px-3 py-2">
-              <span>Coffee · Personal</span>
-              <span className="font-medium text-emerald-400">-$4.50</span>
-            </div>
-          </div>
+      {/* Recent Activity (Real Data Now) */}
+      <div className="rounded-2xl border bg-white p-4 dark:bg-slate-950/80">
+        <p className="text-xs font-medium text-slate-600 dark:text-slate-300">
+          Recent activity
+        </p>
+
+        <div className="mt-3 space-y-2 text-xs">
+          {expenses.length === 0 ? (
+            <p>No expenses yet.</p>
+          ) : (
+            expenses.map((exp) => (
+              <div
+                key={exp.id}
+                className="flex items-center justify-between rounded-lg bg-slate-100 px-3 py-2 dark:bg-slate-900/80"
+              >
+                <span>
+                  {exp.category} · {exp.description}
+                </span>
+                <span className="font-medium text-emerald-400">
+                  -${exp.amount}
+                </span>
+              </div>
+            ))
+          )}
         </div>
       </div>
     </div>
