@@ -18,6 +18,11 @@ export default function DashboardPage() {
     if (data) setExpenses(data);
   };
 
+  const handleDeleteExpense = async (id: string) => {
+    await supabase.from("expenses").delete().eq("id", id);
+    fetchExpenses();
+  };
+
   useEffect(() => {
     fetchExpenses();
   }, []);
@@ -45,7 +50,24 @@ export default function DashboardPage() {
 
     fetchExpenses();
   };
-
+  const now = new Date();
+  const currentMonth = now.getMonth();
+  const currentYear = now.getFullYear();
+  
+  const monthlyTotal = expenses
+    .filter((exp) => {
+      const expDate = new Date(exp.date);
+      return (
+        expDate.getMonth() === currentMonth &&
+        expDate.getFullYear() === currentYear
+      );
+    })
+    .reduce((acc, exp) => acc + Number(exp.amount), 0);
+  
+  const totalOverall = expenses.reduce(
+    (acc, exp) => acc + Number(exp.amount),
+    0
+  );
   return (
     <div className="space-y-6 text-slate-900 transition-colors dark:text-slate-100">
       {/* Header */}
@@ -98,13 +120,12 @@ export default function DashboardPage() {
       <div className="grid gap-4 md:grid-cols-3">
         <div className="rounded-2xl border bg-white p-4 dark:bg-slate-950/80">
           <p className="text-xs text-slate-500">This month</p>
-          <p className="mt-2 text-2xl font-semibold">$0.00</p>
+          <p className="mt-2 text-2xl font-semibold">${monthlyTotal}</p>
         </div>
         <div className="rounded-2xl border bg-white p-4 dark:bg-slate-950/80">
           <p className="text-xs text-slate-500">Total Expenses</p>
           <p className="mt-2 text-2xl font-semibold">
-            $
-            {expenses.reduce((acc, exp) => acc + Number(exp.amount), 0)}
+            ${totalOverall}
           </p>
         </div>
         <div className="rounded-2xl border bg-white p-4 dark:bg-slate-950/80">
@@ -125,16 +146,26 @@ export default function DashboardPage() {
           ) : (
             expenses.map((exp) => (
               <div
-                key={exp.id}
-                className="flex items-center justify-between rounded-lg bg-slate-100 px-3 py-2 dark:bg-slate-900/80"
-              >
-                <span>
-                  {exp.category} · {exp.description}
-                </span>
+              key={exp.id}
+              className="flex items-center justify-between rounded-lg bg-slate-100 px-3 py-2 dark:bg-slate-900/80"
+            >
+              <span>
+                {exp.category} · {exp.description}
+              </span>
+            
+              <div className="flex items-center gap-3">
                 <span className="font-medium text-emerald-400">
                   -${exp.amount}
                 </span>
+            
+                <button
+                  onClick={() => handleDeleteExpense(exp.id)}
+                  className="text-xs text-red-500 hover:text-red-600"
+                >
+                  Delete
+                </button>
               </div>
+            </div>
             ))
           )}
         </div>
