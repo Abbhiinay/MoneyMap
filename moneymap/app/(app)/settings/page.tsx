@@ -2,10 +2,14 @@
 
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
+import { useUserCurrency } from "@/lib/useUserCurrency";
 import { useRouter } from "next/navigation";
 
 export default function SettingsPage() {
   const [userEmail, setUserEmail] = useState<string | null>(null);
+  const { currency, loading: currencyLoading, error, updateCurrency } =
+    useUserCurrency();
+  const [selectedCurrency, setSelectedCurrency] = useState<string>("USD");
   const router = useRouter();
 
   useEffect(() => {
@@ -26,6 +30,12 @@ export default function SettingsPage() {
     await supabase.auth.signOut();
     router.push("/auth");
   };
+
+  useEffect(() => {
+    if (currency) {
+      setSelectedCurrency(currency);
+    }
+  }, [currency]);
 
   return (
     <div className="space-y-6 text-slate-900 transition-colors dark:text-slate-100">
@@ -64,6 +74,35 @@ export default function SettingsPage() {
                 <p className="truncate text-xs text-slate-600 dark:text-slate-400">
                   (Fetched securely from Supabase)
                 </p>
+              </div>
+
+              <div>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  Default currency
+                </p>
+                <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center">
+                  <select
+                    value={selectedCurrency}
+                    onChange={(e) => setSelectedCurrency(e.target.value)}
+                    disabled={currencyLoading}
+                    className="rounded-lg border border-slate-300 bg-white p-2 text-xs text-slate-700 disabled:opacity-60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                  >
+                    <option value="USD">USD - US Dollar</option>
+                    <option value="INR">INR - Indian Rupee</option>
+                    <option value="GBP">GBP - British Pound</option>
+                    <option value="EUR">EUR - Euro</option>
+                  </select>
+                  <button
+                    onClick={() => updateCurrency(selectedCurrency)}
+                    disabled={currencyLoading}
+                    className="inline-flex items-center justify-center rounded-lg bg-blue-600 px-3 py-2 text-xs font-medium text-white transition hover:bg-blue-700 disabled:opacity-60"
+                  >
+                    {currencyLoading ? "Saving..." : "Save currency"}
+                  </button>
+                </div>
+                {error && (
+                  <p className="mt-1 text-[11px] text-red-500">{error}</p>
+                )}
               </div>
             </div>
           </div>

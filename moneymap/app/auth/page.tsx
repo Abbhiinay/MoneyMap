@@ -11,14 +11,21 @@ export default function AuthPage() {
   const [password, setPassword] = useState("");
 
   const handleSignUp = async () => {
-    const { error } = await supabase.auth.signUp({
+    const { data, error } = await supabase.auth.signUp({
       email,
       password,
     });
-
+  
     if (error) {
       alert(error.message);
-    } else {
+    } else if (data.user) {
+      await supabase.from("profiles").insert([
+        {
+          id: data.user.id,
+          currency: "USD",
+        },
+      ]);
+  
       alert("Check your email to confirm signup.");
     }
   };

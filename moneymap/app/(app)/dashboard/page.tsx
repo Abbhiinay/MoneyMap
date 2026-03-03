@@ -2,12 +2,21 @@
 
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
+import { useUserCurrency } from "@/lib/useUserCurrency";
+import {
+  PieChart,
+  Pie,
+  Cell,
+  Tooltip,
+  ResponsiveContainer,
+} from "recharts";
 
 export default function DashboardPage() {
   const [amount, setAmount] = useState("");
   const [category, setCategory] = useState("");
   const [description, setDescription] = useState("");
   const [expenses, setExpenses] = useState<any[]>([]);
+  const { currency, loading: currencyLoading } = useUserCurrency();
 
   const fetchExpenses = async () => {
     const { data } = await supabase
@@ -24,7 +33,7 @@ export default function DashboardPage() {
   };
 
   useEffect(() => {
-    fetchExpenses();
+    void fetchExpenses();
   }, []);
 
   const handleAddExpense = async () => {
@@ -68,6 +77,40 @@ export default function DashboardPage() {
     (acc, exp) => acc + Number(exp.amount),
     0
   );
+  const categoryData = Object.values(
+    expenses.reduce((acc: any, exp) => {
+      if (!acc[exp.category]) {
+        acc[exp.category] = { name: exp.category, value: 0 };
+      }
+      acc[exp.category].value += Number(exp.amount);
+      return acc;
+    }, {})
+  );
+  const COLORS = [
+    "#6366F1",
+    "#22C55E",
+    "#F59E0B",
+    "#EF4444",
+    "#06B6D4",
+    "#A855F7",
+  ];
+
+  const formatCurrency = (value: number) =>
+    new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency,
+    }).format(value);
+
+  if (currencyLoading) {
+    return (
+      <div className="space-y-6 text-slate-900 transition-colors dark:text-slate-100">
+        <div className="text-sm text-slate-500 dark:text-slate-400">
+          Loading dashboard preferences...
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6 text-slate-900 transition-colors dark:text-slate-100">
       {/* Header */}
@@ -120,12 +163,14 @@ export default function DashboardPage() {
       <div className="grid gap-4 md:grid-cols-3">
         <div className="rounded-2xl border bg-white p-4 dark:bg-slate-950/80">
           <p className="text-xs text-slate-500">This month</p>
-          <p className="mt-2 text-2xl font-semibold">${monthlyTotal}</p>
+          <p className="mt-2 text-2xl font-semibold">
+            {formatCurrency(monthlyTotal)}
+          </p>
         </div>
         <div className="rounded-2xl border bg-white p-4 dark:bg-slate-950/80">
           <p className="text-xs text-slate-500">Total Expenses</p>
           <p className="mt-2 text-2xl font-semibold">
-            ${totalOverall}
+            {formatCurrency(totalOverall)}
           </p>
         </div>
         <div className="rounded-2xl border bg-white p-4 dark:bg-slate-950/80">
@@ -133,7 +178,40 @@ export default function DashboardPage() {
           <p className="mt-2 text-2xl font-semibold">{expenses.length}</p>
         </div>
       </div>
+      {/* Spending by Category */}
+<div className="rounded-2xl border bg-white p-4 dark:bg-slate-950/80">
+  <p className="text-xs font-medium text-slate-600 dark:text-slate-300">
+    Spending by category
+  </p>
 
+  <div className="mt-4 h-64">
+    {categoryData.length === 0 ? (
+      <p className="text-sm text-slate-500 dark:text-slate-400">
+        No expense data yet.
+      </p>
+    ) : (
+      <ResponsiveContainer width="100%" height="100%">
+        <PieChart>
+          <Pie
+            data={categoryData}
+            dataKey="value"
+            nameKey="name"
+            outerRadius={80}
+            label
+          >
+            {categoryData.map((entry: any, index: number) => (
+              <Cell
+                key={`cell-${index}`}
+                fill={COLORS[index % COLORS.length]}
+              />
+            ))}
+          </Pie>
+          <Tooltip />
+        </PieChart>
+      </ResponsiveContainer>
+    )}
+  </div>
+</div>
       {/* Recent Activity (Real Data Now) */}
       <div className="rounded-2xl border bg-white p-4 dark:bg-slate-950/80">
         <p className="text-xs font-medium text-slate-600 dark:text-slate-300">
@@ -155,7 +233,7 @@ export default function DashboardPage() {
             
               <div className="flex items-center gap-3">
                 <span className="font-medium text-emerald-400">
-                  -${exp.amount}
+                  -{formatCurrency(Number(exp.amount))}
                 </span>
             
                 <button
