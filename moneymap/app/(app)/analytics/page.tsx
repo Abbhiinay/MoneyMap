@@ -7,6 +7,7 @@ import {
   Bar,
   BarChart,
   CartesianGrid,
+  Legend,
   Line,
   LineChart,
   ResponsiveContainer,
@@ -23,6 +24,15 @@ type Expense = {
   created_at?: string;
 };
 
+// Example transaction dataset (for reference / testing shape)
+// Matches: { id, amount, category, date: "YYYY-MM-DD" }
+const exampleTransactions = [
+  { id: 1, amount: 200, category: "Food", date: "2026-03-01" },
+  { id: 2, amount: 0, category: "Food", date: "2026-03-02" },
+  { id: 3, amount: 450, category: "Transport", date: "2026-03-03" },
+  { id: 4, amount: 120, category: "Shopping", date: "2026-03-04" },
+];
+
 type MonthlyPoint = {
   key: string;
   month: string;
@@ -35,11 +45,20 @@ type YearlyPoint = {
   total: number;
 };
 
+type DailyPoint = {
+  day: number;
+  total: number;
+};
+
 export default function AnalyticsPage() {
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [selectedYear, setSelectedYear] = useState<number>(
     () => new Date().getFullYear()
   );
+  const [selectedMonth, setSelectedMonth] = useState<string>(() => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  });
   const { currency, loading: currencyLoading } = useUserCurrency();
   const [heatmapTooltip, setHeatmapTooltip] = useState<{
     visible: boolean;
@@ -98,12 +117,85 @@ export default function AnalyticsPage() {
     return d;
   };
 
+  const formatMonthLabel = (yyyyMm: string) => {
+    const [y, m] = yyyyMm.split("-").map(Number);
+    const d = new Date(y, (m ?? 1) - 1, 1);
+    return d.toLocaleString("default", { month: "long", year: "numeric" });
+  };
+
   const spendingLevel = (amount: number) => {
     if (!amount || amount <= 0) return 0; // ₹0
     if (amount <= 200) return 1; // ₹1–₹200
     if (amount < 500) return 2; // ₹201–₹499
     return 3; // ₹500+
   };
+
+  /**
+   * Returns all months that contain transactions.
+   * Output is "YYYY-MM" sorted newest -> oldest.
+   */
+  function getAvailableMonths(transactions: Expense[]) {
+    const months = new Set<string>();
+    transactions.forEach((tx) => {
+      const d = parseExpenseDate(tx);
+      if (!d) return;
+      const key = `${d.getFullYear()}-${pad2(d.getMonth() + 1)}`;
+      months.add(key);
+    });
+    return Array.from(months).sort((a, b) => (a < b ? 1 : -1));
+  }
+
+  /**
+   * Returns an array of length = days in the given month, containing total spend per day.
+   * Month is "YYYY-MM".
+   */
+  function getDailySpendingForMonth(transactions: Expense[], month: string) {
+    const [year, monthNum] = month.split("-").map(Number);
+    const y = year;
+    const mIndex = (monthNum ?? 1) - 1;
+    const daysInMonth = new Date(y, mIndex + 1, 0).getDate();
+    const totals = Array.from({ length: daysInMonth }, () => 0);
+
+    transactions.forEach((tx) => {
+      const d = parseExpenseDate(tx);
+      if (!d) return;
+      if (d.getFullYear() !== y || d.getMonth() !== mIndex) return;
+      const dayIndex = d.getDate() - 1;
+      totals[dayIndex] += Number(tx.amount) || 0;
+    });
+
+    return totals;
+  }
+
+  /**
+   * Returns per-category daily arrays for a given month.
+   * Month is "YYYY-MM".
+   */
+  function getCategoryTrendForMonth(transactions: Expense[], month: string) {
+    const [year, monthNum] = month.split("-").map(Number);
+    const y = year;
+    const mIndex = (monthNum ?? 1) - 1;
+    const daysInMonth = new Date(y, mIndex + 1, 0).getDate();
+
+    const byCategory: Record<string, number[]> = {};
+
+    transactions.forEach((tx) => {
+      const d = parseExpenseDate(tx);
+      if (!d) return;
+      if (d.getFullYear() !== y || d.getMonth() !== mIndex) return;
+
+      const cat = tx.category || "Uncategorized";
+      if (!byCategory[cat]) {
+        byCategory[cat] = Array.from({ length: daysInMonth }, () => 0);
+      }
+      byCategory[cat][d.getDate() - 1] += Number(tx.amount) || 0;
+    });
+
+    // Ensure stable ordering when iterating keys
+    return Object.fromEntries(
+      Object.entries(byCategory).sort(([a], [b]) => a.localeCompare(b))
+    );
+  }
 
   // Last 12 months (existing bar chart)
   const monthlyData: MonthlyPoint[] = useMemo(() => {
@@ -181,6 +273,64 @@ export default function AnalyticsPage() {
   }, [expenses, selectedYear]);
 
   const hasData = monthlyData.some((m) => m.total > 0);
+
+  // Month dropdown + daily/category trends (driven by selectedMonth)
+  const availableMonths = useMemo(() => {
+    const fromData = getAvailableMonths(expenses);
+    const now = new Date();
+    const current = `${now.getFullYear()}-${pad2(now.getMonth() + 1)}`;
+    const withoutCurrent = fromData.filter((m) => m !== current);
+    return [current, ...withoutCurrent];
+  }, [expenses]);
+
+  useEffect(() => {
+    if (availableMonths.length === 0) return;
+    if (!availableMonths.includes(selectedMonth)) {
+      setSelectedMonth(availableMonths[0]);
+    }
+  }, [availableMonths, selectedMonth]);
+
+  const dailyTotalsForSelectedMonth = useMemo(
+    () => getDailySpendingForMonth(expenses, selectedMonth),
+    [expenses, selectedMonth]
+  );
+
+  const dailyTrendData: DailyPoint[] = useMemo(
+    () =>
+      dailyTotalsForSelectedMonth.map((total, idx) => ({
+        day: idx + 1,
+        total,
+      })),
+    [dailyTotalsForSelectedMonth]
+  );
+
+  const categoryTrend = useMemo(
+    () => getCategoryTrendForMonth(expenses, selectedMonth),
+    [expenses, selectedMonth]
+  );
+
+  const categoryTrendChartData = useMemo(() => {
+    const days = dailyTotalsForSelectedMonth.length;
+    const categories = Object.keys(categoryTrend);
+    return Array.from({ length: days }, (_, idx) => {
+      const point: Record<string, number> & { day: number } = { day: idx + 1 };
+      categories.forEach((cat) => {
+        point[cat] = categoryTrend[cat]?.[idx] ?? 0;
+      });
+      return point;
+    });
+  }, [categoryTrend, dailyTotalsForSelectedMonth.length]);
+
+  const categoryColors = [
+    "#6366F1",
+    "#22C55E",
+    "#F59E0B",
+    "#EF4444",
+    "#06B6D4",
+    "#A855F7",
+    "#10B981",
+    "#F97316",
+  ];
 
   // Heatmap: aggregate current month spending by day (GitHub-style grid)
   const heatmap = useMemo(() => {
@@ -333,25 +483,43 @@ export default function AnalyticsPage() {
         </p>
       </div>
 
+      {/* Month Dropdown (drives daily + category charts) */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="text-sm text-slate-600 dark:text-slate-300">
+          Select Month
+        </div>
+        <select
+          value={selectedMonth}
+          onChange={(e) => setSelectedMonth(e.target.value)}
+          className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm transition-colors hover:border-slate-300 focus:border-slate-400 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+        >
+          {availableMonths.map((m) => (
+            <option key={m} value={m}>
+              {formatMonthLabel(m)}
+            </option>
+          ))}
+        </select>
+      </div>
+
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)]">
         <div className="space-y-4">
-          {/* Monthly spending trend (last 12 months) */}
+          {/* Daily spending trend (selected month) */}
           <div className="rounded-2xl border border-slate-200/80 bg-white p-4 transition-colors dark:border-slate-800/80 dark:bg-slate-950/80">
             <div className="flex items-center justify-between">
               <p className="text-xs font-medium text-slate-600 dark:text-slate-300">
-                Monthly Spending Trend
+                Daily Spending Trend
               </p>
             </div>
 
             <div className="mt-4 h-64">
-              {!hasData ? (
+              {expenses.length === 0 ? (
                 <div className="flex h-full items-center justify-center rounded-xl bg-slate-100 text-sm text-slate-500 transition-colors dark:bg-slate-900/80 dark:text-slate-400">
-                  No spending data for the last 12 months.
+                  No spending data yet.
                 </div>
               ) : (
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart
-                    data={monthlyData}
+                  <LineChart
+                    data={dailyTrendData}
                     margin={{ top: 10, right: 8, left: -20, bottom: 0 }}
                   >
                     <CartesianGrid
@@ -360,7 +528,7 @@ export default function AnalyticsPage() {
                       className="stroke-slate-200 dark:stroke-slate-800"
                     />
                     <XAxis
-                      dataKey="month"
+                      dataKey="day"
                       tickLine={false}
                       axisLine={false}
                       tick={{ fontSize: 11, fill: "#64748b" }}
@@ -374,11 +542,14 @@ export default function AnalyticsPage() {
                       }
                     />
                     <Tooltip
-                      cursor={{ fill: "rgba(148, 163, 184, 0.12)" }}
+                      cursor={{
+                        stroke: "rgba(99,102,241,0.35)",
+                        strokeWidth: 1,
+                      }}
                       formatter={(value) =>
                         formatCurrency(value as number)
                       }
-                      labelFormatter={(label) => label}
+                      labelFormatter={(label) => `Day ${label}`}
                       contentStyle={{
                         backgroundColor: "#020617",
                         borderRadius: 12,
@@ -388,13 +559,90 @@ export default function AnalyticsPage() {
                       labelStyle={{ fontSize: 11, color: "#e2e8f0" }}
                       itemStyle={{ fontSize: 11, color: "#e2e8f0" }}
                     />
-                    <Bar
+                    <Line
+                      type="monotone"
                       dataKey="total"
-                      fill="#6366F1"
-                      radius={[6, 6, 0, 0]}
-                      maxBarSize={32}
+                      stroke="#6366F1"
+                      strokeWidth={2}
+                      dot={false}
+                      activeDot={{ r: 4 }}
                     />
-                  </BarChart>
+                  </LineChart>
+                </ResponsiveContainer>
+              )}
+            </div>
+          </div>
+
+          {/* Category Spending Trend (selected month) */}
+          <div className="rounded-2xl border border-slate-200/80 bg-white p-4 transition-colors dark:border-slate-800/80 dark:bg-slate-950/80">
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-medium text-slate-600 dark:text-slate-300">
+                Category Spending Trend
+              </p>
+            </div>
+
+            <div className="mt-4 h-64">
+              {expenses.length === 0 ? (
+                <div className="flex h-full items-center justify-center rounded-xl bg-slate-100 text-sm text-slate-500 transition-colors dark:bg-slate-900/80 dark:text-slate-400">
+                  No spending data yet.
+                </div>
+              ) : Object.keys(categoryTrend).length === 0 ? (
+                <div className="flex h-full items-center justify-center rounded-xl bg-slate-100 text-sm text-slate-500 transition-colors dark:bg-slate-900/80 dark:text-slate-400">
+                  No category activity in this month.
+                </div>
+              ) : (
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart
+                    data={categoryTrendChartData}
+                    margin={{ top: 10, right: 8, left: -20, bottom: 0 }}
+                  >
+                    <CartesianGrid
+                      strokeDasharray="3 3"
+                      vertical={false}
+                      className="stroke-slate-200 dark:stroke-slate-800"
+                    />
+                    <XAxis
+                      dataKey="day"
+                      tickLine={false}
+                      axisLine={false}
+                      tick={{ fontSize: 11, fill: "#64748b" }}
+                    />
+                    <YAxis
+                      tickLine={false}
+                      axisLine={false}
+                      tick={{ fontSize: 11, fill: "#64748b" }}
+                      tickFormatter={(value) => formatCurrency(value as number)}
+                    />
+                    <Tooltip
+                      cursor={{
+                        stroke: "rgba(99,102,241,0.25)",
+                        strokeWidth: 1,
+                      }}
+                      formatter={(value) => formatCurrency(value as number)}
+                      labelFormatter={(label) => `Day ${label}`}
+                      contentStyle={{
+                        backgroundColor: "#020617",
+                        borderRadius: 12,
+                        border: "1px solid rgba(30,41,59,0.7)",
+                        padding: "8px 10px",
+                      }}
+                      labelStyle={{ fontSize: 11, color: "#e2e8f0" }}
+                      itemStyle={{ fontSize: 11, color: "#e2e8f0" }}
+                    />
+                    <Legend wrapperStyle={{ fontSize: 11 }} />
+
+                    {Object.keys(categoryTrend).map((cat, idx) => (
+                      <Line
+                        key={cat}
+                        type="monotone"
+                        dataKey={cat}
+                        stroke={categoryColors[idx % categoryColors.length]}
+                        strokeWidth={2}
+                        dot={false}
+                        connectNulls
+                      />
+                    ))}
+                  </LineChart>
                 </ResponsiveContainer>
               )}
             </div>
@@ -504,7 +752,7 @@ export default function AnalyticsPage() {
                       return (
                         <div
                           key={cell.key}
-                          className="h-3 w-3 visibility-hidden"
+                          className="h-3 w-3 invisible"
                           aria-hidden="true"
                         />
                       );

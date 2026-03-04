@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { useUserCurrency } from "@/lib/useUserCurrency";
+import { categories } from "@/data/categories";
 import {
   PieChart,
   Pie,
@@ -16,6 +17,9 @@ export default function DashboardPage() {
   const [category, setCategory] = useState("");
   const [description, setDescription] = useState("");
   const [expenses, setExpenses] = useState<any[]>([]);
+  const [expenseDate, setExpenseDate] = useState(
+    new Date().toISOString().split("T")[0]
+  );
   const { currency, loading: currencyLoading } = useUserCurrency();
 
   const fetchExpenses = async () => {
@@ -49,7 +53,7 @@ export default function DashboardPage() {
         amount: Number(amount),
         category,
         description,
-        date: new Date(),
+        date: expenseDate,
       },
     ]);
 
@@ -88,7 +92,7 @@ export default function DashboardPage() {
   const categoryData = Object.values(
     monthlyExpenses.reduce((acc: any, exp) => {
       if (!acc[exp.category]) {
-        acc[exp.category] = { name: exp.category, value: 0 };
+        acc[exp.category] = { name: categories.find(c => c.name === exp.category)?.name || exp.category, value: 0 };
       }
       acc[exp.category].value += Number(exp.amount);
       return acc;
@@ -144,13 +148,23 @@ export default function DashboardPage() {
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
           />
-          <input
-            type="text"
-            placeholder="Category"
-            className="rounded-lg border p-2 text-sm dark:bg-slate-900"
-            value={category}
-            onChange={(e) => setCategory(e.target.value)}
-          />
+       <select
+  className="category-select"
+  value={category}
+  onChange={(e) => setCategory(e.target.value)}
+>
+  <option value="">Select Category</option>
+  <option>🍔 Food</option>
+  <option>🛒 Grocery</option>
+  <option>🧺 Laundry</option>
+  <option>✏️ Stationery</option>
+  <option>✈️ Travel</option>
+  <option>🛍 Shopping</option>
+  <option>💡 Bills</option>
+  <option>🎬 Entertainment</option>
+  <option>💊 Health</option>
+  <option>📦 Other</option>
+</select>
           <input
             type="text"
             placeholder="Description"
@@ -158,6 +172,12 @@ export default function DashboardPage() {
             value={description}
             onChange={(e) => setDescription(e.target.value)}
           />
+<input
+  type="date"
+  value={expenseDate}
+  onChange={(e) => setExpenseDate(e.target.value)}
+  className="expense-date"
+/>
         </div>
         <button
           onClick={handleAddExpense}
