@@ -1,0 +1,280 @@
+/* MoneyMap • GitHub-style daily spending heatmap (no framework) */
+
+:root {
+  --bg: #0b1220;
+  --card: rgba(2, 6, 23, 0.6);
+  --border: rgba(30, 41, 59, 0.7);
+  --text: #e2e8f0;
+  --muted: #94a3b8;
+
+  --level0: #e5e7eb; /* ₹0 light grey */
+  --level1: #bbf7d0; /* ₹1–₹200 light green */
+  --level2: #4ade80; /* ₹200–₹500 medium green */
+  --level3: #16a34a; /* ₹500+ dark green */
+
+  --cell: 12px;
+  --gap: 4px;
+  --radius: 3px;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #f8fafc;
+    --card: #ffffff;
+    --border: rgba(226, 232, 240, 1);
+    --text: #0f172a;
+    --muted: #64748b;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial,
+    "Apple Color Emoji", "Segoe UI Emoji";
+  background: radial-gradient(
+      1000px 500px at 20% -10%,
+      rgba(99, 102, 241, 0.18),
+      transparent 60%
+    ),
+    var(--bg);
+  color: var(--text);
+}
+
+.page {
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 24px 16px 48px;
+  display: grid;
+  gap: 14px;
+}
+
+.header {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+
+.title {
+  font-size: 22px;
+  margin: 0;
+  letter-spacing: -0.02em;
+}
+
+.subtitle {
+  margin: 6px 0 0;
+  font-size: 13px;
+  color: var(--muted);
+  max-width: 52ch;
+}
+
+.card {
+  border: 1px solid var(--border);
+  background: var(--card);
+  border-radius: 16px;
+  padding: 14px;
+  position: relative;
+}
+
+.card-head {
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 10px;
+}
+
+.month-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.meta {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.legend {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.12);
+}
+
+@media (prefers-color-scheme: light) {
+  .legend {
+    background: rgba(15, 23, 42, 0.04);
+  }
+}
+
+.legend-label {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.legend-swatch {
+  width: 12px;
+  height: 12px;
+  border-radius: var(--radius);
+  border: 1px solid rgba(15, 23, 42, 0.08);
+}
+.level-0 {
+  background: var(--level0);
+}
+.level-1 {
+  background: var(--level1);
+}
+.level-2 {
+  background: var(--level2);
+}
+.level-3 {
+  background: var(--level3);
+}
+
+.heatmap-wrap {
+  display: grid;
+  grid-template-columns: 42px 1fr;
+  gap: 10px;
+  align-items: start;
+}
+
+.weekday-labels {
+  display: grid;
+  grid-template-rows: repeat(7, calc(var(--cell) + var(--gap)));
+  gap: var(--gap);
+  padding-top: 2px;
+}
+
+.weekday {
+  font-size: 10px;
+  color: var(--muted);
+  line-height: var(--cell);
+  height: var(--cell);
+}
+
+.weekday:nth-child(1) {
+  grid-row: 2; /* Mon */
+}
+.weekday:nth-child(2) {
+  grid-row: 4; /* Wed */
+}
+.weekday:nth-child(3) {
+  grid-row: 6; /* Fri */
+}
+
+.heatmap-scroller {
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-bottom: 6px;
+}
+
+.heatmap {
+  display: grid;
+  grid-auto-flow: column; /* GitHub style: columns are weeks */
+  grid-auto-columns: calc(var(--cell) + var(--gap));
+  grid-template-rows: repeat(7, var(--cell));
+  gap: var(--gap);
+  align-items: start;
+  width: max-content;
+}
+
+.day {
+  width: var(--cell);
+  height: var(--cell);
+  border-radius: var(--radius);
+  background: var(--level0);
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  cursor: default;
+}
+
+.day[data-level="0"] {
+  background: var(--level0);
+}
+.day[data-level="1"] {
+  background: var(--level1);
+}
+.day[data-level="2"] {
+  background: var(--level2);
+}
+.day[data-level="3"] {
+  background: var(--level3);
+}
+
+.day:hover {
+  outline: 2px solid rgba(99, 102, 241, 0.5);
+  outline-offset: 1px;
+}
+
+.tooltip {
+  position: fixed;
+  pointer-events: none;
+  z-index: 50;
+  min-width: 140px;
+  max-width: 220px;
+  padding: 8px 10px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: rgba(2, 6, 23, 0.92);
+  color: #e2e8f0;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.22);
+  transform: translate(10px, 10px);
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+@media (prefers-color-scheme: light) {
+  .tooltip {
+    background: rgba(15, 23, 42, 0.92);
+    color: #ffffff;
+  }
+}
+
+.tooltip[aria-hidden="false"] {
+  opacity: 1;
+}
+
+.tooltip .tt-date {
+  font-size: 12px;
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+
+.tooltip .tt-amount {
+  font-size: 12px;
+  color: rgba(226, 232, 240, 0.92);
+}
+
+.code {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text);
+  background: rgba(15, 23, 42, 0.12);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px;
+  overflow: auto;
+}
+
+@media (max-width: 520px) {
+  :root {
+    --cell: 11px;
+    --gap: 3px;
+  }
+  .heatmap-wrap {
+    grid-template-columns: 0 1fr;
+  }
+  .weekday-labels {
+    display: none;
+  }
+}
+
