@@ -137,56 +137,62 @@ export default function DashboardPage() {
 
       {/* Add Expense */}
       <div className="rounded-2xl border border-slate-200/80 bg-white p-4 dark:border-slate-800/80 dark:bg-slate-950/80">
-        <p className="text-xs font-medium text-slate-600 dark:text-slate-400 mb-3">
-          Add Expense
-        </p>
-        <div className="grid gap-3 sm:grid-cols-3">
-          <input
-            type="number"
-            placeholder="Amount"
-            className="rounded-lg border p-2 text-sm dark:bg-slate-900"
-            value={amount}
-            onChange={(e) => setAmount(e.target.value)}
-          />
-       <select
-  className="category-select"
-  value={category}
-  onChange={(e) => setCategory(e.target.value)}
->
-  <option value="">Select Category</option>
-  <option>🍔 Food</option>
-  <option>🛒 Grocery</option>
-  <option>🧺 Laundry</option>
-  <option>✏️ Stationery</option>
-  <option>✈️ Travel</option>
-  <option>🛍 Shopping</option>
-  <option>💡 Bills</option>
-  <option>🎬 Entertainment</option>
-  <option>💊 Health</option>
-  <option>📦 Other</option>
-</select>
-          <input
-            type="text"
-            placeholder="Description"
-            className="rounded-lg border p-2 text-sm dark:bg-slate-900"
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-          />
-<input
-  type="date"
-  value={expenseDate}
-  onChange={(e) => setExpenseDate(e.target.value)}
-  className="expense-date"
-/>
-        </div>
-        <button
-          onClick={handleAddExpense}
-          className="mt-3 rounded-lg bg-blue-600 px-4 py-2 text-sm text-white"
-        >
-          Add
-        </button>
-      </div>
+  <p className="text-xs font-medium text-slate-600 dark:text-slate-400 mb-3">
+    Add Expense
+  </p>
 
+  <div className="grid gap-3 sm:grid-cols-5 items-center">
+
+    <input
+      type="number"
+      placeholder="Amount"
+      className="rounded-lg border p-2 text-sm dark:bg-slate-900"
+      value={amount}
+      onChange={(e) => setAmount(e.target.value)}
+    />
+
+    <select
+      className="rounded-lg border p-2 text-sm dark:bg-slate-900"
+      value={category}
+      onChange={(e) => setCategory(e.target.value)}
+    >
+      <option value="">Select Category</option>
+      <option>🍔 Food</option>
+      <option>🛒 Grocery</option>
+      <option>🧺 Laundry</option>
+      <option>✏️ Stationery</option>
+      <option>✈️ Travel</option>
+      <option>🛍 Shopping</option>
+      <option>💡 Bills</option>
+      <option>🎬 Entertainment</option>
+      <option>💊 Health</option>
+      <option>📦 Other</option>
+    </select>
+
+    <input
+      type="date"
+      value={expenseDate}
+      onChange={(e) => setExpenseDate(e.target.value)}
+      className="rounded-lg border p-2 text-sm dark:bg-slate-900"
+    />
+
+    <input
+      type="text"
+      placeholder="Description"
+      className="rounded-lg border p-2 text-sm dark:bg-slate-900"
+      value={description}
+      onChange={(e) => setDescription(e.target.value)}
+    />
+
+    <button
+      onClick={handleAddExpense}
+      className="rounded-lg bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700"
+    >
+      Add
+    </button>
+
+  </div>
+</div>
       {/* Stat Cards (still placeholder for now) */}
       <div className="grid gap-4 md:grid-cols-3">
         <div className="rounded-2xl border bg-white p-4 dark:bg-slate-950/80">
