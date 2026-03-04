@@ -77,8 +77,16 @@ export default function DashboardPage() {
     (acc, exp) => acc + Number(exp.amount),
     0
   );
+  const monthlyExpenses = expenses.filter((exp) => {
+    const expDate = new Date(exp.date);
+    return (
+      expDate.getMonth() === currentMonth &&
+      expDate.getFullYear() === currentYear
+    );
+  });
+  
   const categoryData = Object.values(
-    expenses.reduce((acc: any, exp) => {
+    monthlyExpenses.reduce((acc: any, exp) => {
       if (!acc[exp.category]) {
         acc[exp.category] = { name: exp.category, value: 0 };
       }
