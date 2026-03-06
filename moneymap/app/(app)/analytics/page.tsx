@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { useUserCurrency } from "@/lib/useUserCurrency";
+import { TransactionDetailsPanel } from "@/app/components/TransactionDetailsPanel";
 import {
   Bar,
   BarChart,
@@ -20,6 +21,7 @@ type Expense = {
   id: string;
   amount: number;
   category?: string;
+  description?: string;
   date?: string;
   created_at?: string;
 };
@@ -48,6 +50,8 @@ type YearlyPoint = {
 type DailyPoint = {
   day: number;
   total: number;
+  isoDate: string;
+  date: string;
 };
 
 export default function AnalyticsPage() {
@@ -74,6 +78,11 @@ export default function AnalyticsPage() {
     amountLabel: "",
   });
 
+  const [selectedDate, setSelectedDate] = useState<string | null>(null);
+  const [selectedTransactions, setSelectedTransactions] = useState<Expense[]>(
+    []
+  );
+
   useEffect(() => {
     const fetchExpenses = async () => {
       const { data } = await supabase
@@ -87,6 +96,7 @@ export default function AnalyticsPage() {
             id: exp.id,
             amount: Number(exp.amount),
             category: exp.category,
+            description: exp.description,
             date: exp.date,
             created_at: exp.created_at,
           }))
@@ -297,12 +307,44 @@ export default function AnalyticsPage() {
 
   const dailyTrendData: DailyPoint[] = useMemo(
     () =>
-      dailyTotalsForSelectedMonth.map((total, idx) => ({
-        day: idx + 1,
-        total,
-      })),
-    [dailyTotalsForSelectedMonth]
+      dailyTotalsForSelectedMonth.map((total, idx) => {
+        const isoDate = `${selectedMonth}-${pad2(idx + 1)}`;
+        return {
+          day: idx + 1,
+          total,
+          isoDate,
+          date: isoDate,
+        };
+      }),
+    [dailyTotalsForSelectedMonth, selectedMonth]
   );
+
+  const handleChartClick = (point: DailyPoint) => {
+    if (!point?.isoDate) return;
+    setSelectedDate(point.isoDate);
+    const clickedDate = point.isoDate;
+    const filtered = expenses.filter((e) => {
+      const raw = e.date ?? e.created_at;
+      if (!raw) return false;
+      const dateStr = raw.length === 10 ? raw : raw.slice(0, 10);
+      return dateStr === clickedDate;
+    });
+    setSelectedTransactions(filtered);
+  };
+
+  const handleLineChartClick = (data: unknown) => {
+    const e = data as { activePayload?: Array<{ payload?: DailyPoint }>; activeLabel?: string | number };
+    const payload = e?.activePayload?.[0]?.payload;
+    if (payload?.isoDate) {
+      handleChartClick(payload);
+      return;
+    }
+    const day = e?.activeLabel != null ? Number(e.activeLabel) : NaN;
+    if (!Number.isNaN(day)) {
+      const point = dailyTrendData.find((p) => p.day === day);
+      if (point) handleChartClick(point);
+    }
+  };
 
   const categoryTrend = useMemo(
     () => getCategoryTrendForMonth(expenses, selectedMonth),
@@ -483,96 +525,128 @@ export default function AnalyticsPage() {
         </p>
       </div>
 
-      {/* Month Dropdown (drives daily + category charts) */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="text-sm text-slate-600 dark:text-slate-300">
-          Select Month
+      {/* Daily Spending Trend (large) + Transaction Details Panel (when a point is clicked) */}
+      <div className="flex flex-col gap-6 sm:flex-row">
+        <div className="min-w-0 flex-[0_0_70%] rounded-2xl border border-slate-200/80 bg-white p-4 transition-colors dark:border-slate-800/80 dark:bg-slate-950/80">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+            <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-100">
+              Daily Spending Trend
+            </h2>
+            <select
+              value={selectedMonth}
+              onChange={(e) => setSelectedMonth(e.target.value)}
+              className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm transition-colors hover:border-slate-300 focus:border-slate-400 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+              aria-label="Select month"
+            >
+              {availableMonths.map((m) => (
+                <option key={m} value={m}>
+                  {formatMonthLabel(m)}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="h-64">
+            {expenses.length === 0 ? (
+              <div className="flex h-full items-center justify-center rounded-xl bg-slate-100 text-sm text-slate-500 transition-colors dark:bg-slate-900/80 dark:text-slate-400">
+                No spending data yet.
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart
+                  data={dailyTrendData}
+                  margin={{ top: 10, right: 8, left: -20, bottom: 0 }}
+                  onClick={handleLineChartClick}
+                >
+                      <CartesianGrid
+                        strokeDasharray="3 3"
+                        vertical={false}
+                        className="stroke-slate-200 dark:stroke-slate-800"
+                      />
+                      <XAxis
+                        dataKey="day"
+                        tickLine={false}
+                        axisLine={false}
+                        tick={(props: { x?: string | number; y?: string | number; payload?: { value?: number } }) => {
+                          const day = props.payload?.value;
+                          const point = day != null ? dailyTrendData.find((p) => p.day === day) : undefined;
+                          const x = typeof props.x === "number" ? props.x : Number(props.x);
+                          const y = typeof props.y === "number" ? props.y : Number(props.y);
+                          return (
+                            <text
+                              x={x}
+                              y={y}
+                              textAnchor="middle"
+                              fill="#64748b"
+                              fontSize={11}
+                              className="cursor-pointer hover:fill-slate-900 dark:hover:fill-slate-100"
+                              onClick={() => point && handleChartClick(point)}
+                            >
+                              {props.payload?.value ?? ""}
+                            </text>
+                          );
+                        }}
+                      />
+                      <YAxis
+                        tickLine={false}
+                        axisLine={false}
+                        tick={{ fontSize: 11, fill: "#64748b" }}
+                        tickFormatter={(value) =>
+                          formatCurrency(value as number)
+                        }
+                      />
+                      <Tooltip
+                        cursor={{
+                          stroke: "rgba(99,102,241,0.35)",
+                          strokeWidth: 1,
+                        }}
+                        formatter={(value) =>
+                          formatCurrency(value as number)
+                        }
+                        labelFormatter={(label) => `Day ${label}`}
+                        contentStyle={{
+                          backgroundColor: "#020617",
+                          borderRadius: 12,
+                          border: "1px solid rgba(30,41,59,0.7)",
+                          padding: "8px 10px",
+                        }}
+                        labelStyle={{ fontSize: 11, color: "#e2e8f0" }}
+                        itemStyle={{ fontSize: 11, color: "#e2e8f0" }}
+                      />
+                      <Line
+                        type="monotone"
+                        dataKey="total"
+                        stroke="#6366F1"
+                        strokeWidth={2}
+                        dot={{ r: 4, cursor: "pointer" }}
+                        activeDot={{ r: 6, cursor: "pointer" }}
+                        onClick={(data: unknown) => {
+                          const point = data as DailyPoint;
+                          if (point?.isoDate) handleChartClick(point);
+                        }}
+                      />
+                    </LineChart>
+                  </ResponsiveContainer>
+                )}
+          </div>
         </div>
-        <select
-          value={selectedMonth}
-          onChange={(e) => setSelectedMonth(e.target.value)}
-          className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm transition-colors hover:border-slate-300 focus:border-slate-400 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+
+        <div
+          className="min-w-0 flex-[0_0_30%] transition-all duration-300 ease-in-out"
+          style={{ opacity: selectedDate ? 1 : 0.95 }}
         >
-          {availableMonths.map((m) => (
-            <option key={m} value={m}>
-              {formatMonthLabel(m)}
-            </option>
-          ))}
-        </select>
+          {selectedDate && (
+            <TransactionDetailsPanel
+              date={selectedDate}
+              transactions={selectedTransactions}
+              formatCurrency={formatCurrency}
+            />
+          )}
+        </div>
       </div>
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)]">
         <div className="space-y-4">
-          {/* Daily spending trend (selected month) */}
-          <div className="rounded-2xl border border-slate-200/80 bg-white p-4 transition-colors dark:border-slate-800/80 dark:bg-slate-950/80">
-            <div className="flex items-center justify-between">
-              <p className="text-xs font-medium text-slate-600 dark:text-slate-300">
-                Daily Spending Trend
-              </p>
-            </div>
-
-            <div className="mt-4 h-64">
-              {expenses.length === 0 ? (
-                <div className="flex h-full items-center justify-center rounded-xl bg-slate-100 text-sm text-slate-500 transition-colors dark:bg-slate-900/80 dark:text-slate-400">
-                  No spending data yet.
-                </div>
-              ) : (
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart
-                    data={dailyTrendData}
-                    margin={{ top: 10, right: 8, left: -20, bottom: 0 }}
-                  >
-                    <CartesianGrid
-                      strokeDasharray="3 3"
-                      vertical={false}
-                      className="stroke-slate-200 dark:stroke-slate-800"
-                    />
-                    <XAxis
-                      dataKey="day"
-                      tickLine={false}
-                      axisLine={false}
-                      tick={{ fontSize: 11, fill: "#64748b" }}
-                    />
-                    <YAxis
-                      tickLine={false}
-                      axisLine={false}
-                      tick={{ fontSize: 11, fill: "#64748b" }}
-                      tickFormatter={(value) =>
-                        formatCurrency(value as number)
-                      }
-                    />
-                    <Tooltip
-                      cursor={{
-                        stroke: "rgba(99,102,241,0.35)",
-                        strokeWidth: 1,
-                      }}
-                      formatter={(value) =>
-                        formatCurrency(value as number)
-                      }
-                      labelFormatter={(label) => `Day ${label}`}
-                      contentStyle={{
-                        backgroundColor: "#020617",
-                        borderRadius: 12,
-                        border: "1px solid rgba(30,41,59,0.7)",
-                        padding: "8px 10px",
-                      }}
-                      labelStyle={{ fontSize: 11, color: "#e2e8f0" }}
-                      itemStyle={{ fontSize: 11, color: "#e2e8f0" }}
-                    />
-                    <Line
-                      type="monotone"
-                      dataKey="total"
-                      stroke="#6366F1"
-                      strokeWidth={2}
-                      dot={false}
-                      activeDot={{ r: 4 }}
-                    />
-                  </LineChart>
-                </ResponsiveContainer>
-              )}
-            </div>
-          </div>
-
           {/* Category Spending Trend (selected month) */}
           <div className="rounded-2xl border border-slate-200/80 bg-white p-4 transition-colors dark:border-slate-800/80 dark:bg-slate-950/80">
             <div className="flex items-center justify-between">
@@ -841,26 +915,8 @@ export default function AnalyticsPage() {
           </div>
         </div>
 
-        {/* Right-hand side placeholder cards (can evolve into more analytics later) */}
+        {/* Insights & alerts */}
         <div className="space-y-4">
-          <div className="rounded-2xl border border-slate-200/80 bg-white p-4 transition-colors dark:border-slate-800/80 dark:bg-slate-950/80">
-            <p className="text-xs font-medium text-slate-600 dark:text-slate-300">
-              Savings & runway
-            </p>
-            <div className="mt-3 space-y-2 text-xs text-slate-700 dark:text-slate-300">
-              <div className="flex items-center justify-between">
-                <span>Emergency fund</span>
-                <span className="font-semibold text-emerald-400">4.2 months</span>
-              </div>
-              <div className="mt-1 h-2 w-full rounded-full bg-slate-200 transition-colors dark:bg-slate-900">
-                <div className="h-2 w-3/5 rounded-full bg-emerald-500 dark:bg-emerald-400" />
-              </div>
-              <p className="mt-2 text-[11px] text-slate-500 dark:text-slate-400">
-                Based on average expenses in the last 6 months.
-              </p>
-            </div>
-          </div>
-
           <div className="rounded-2xl border border-slate-200/80 bg-white p-4 transition-colors dark:border-slate-800/80 dark:bg-slate-950/80">
             <p className="text-xs font-medium text-slate-600 dark:text-slate-300">
               Insights & alerts

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { useUserCurrency } from "@/lib/useUserCurrency";
 import { categories } from "@/data/categories";
+import { EditExpenseModal } from "@/app/components/EditExpenseModal";
 import {
   PieChart,
   Pie,
@@ -12,14 +13,24 @@ import {
   ResponsiveContainer,
 } from "recharts";
 
+type ExpenseItem = {
+  id: string;
+  amount: number;
+  category: string;
+  description?: string;
+  date: string;
+  created_at?: string;
+};
+
 export default function DashboardPage() {
   const [amount, setAmount] = useState("");
   const [category, setCategory] = useState("");
   const [description, setDescription] = useState("");
-  const [expenses, setExpenses] = useState<any[]>([]);
+  const [expenses, setExpenses] = useState<ExpenseItem[]>([]);
   const [expenseDate, setExpenseDate] = useState(
-    new Date().toISOString().split("T")[0]
+    () => new Date().toISOString().split("T")[0]
   );
+  const [editingTransaction, setEditingTransaction] = useState<ExpenseItem | null>(null);
   const { currency, loading: currencyLoading } = useUserCurrency();
 
   const fetchExpenses = async () => {
@@ -28,11 +39,42 @@ export default function DashboardPage() {
       .select("*")
       .order("created_at", { ascending: false });
 
-    if (data) setExpenses(data);
+    if (data) {
+      setExpenses(
+        data.map((e: any) => ({
+          id: e.id,
+          amount: Number(e.amount),
+          category: e.category ?? "",
+          description: e.description ?? "",
+          date: e.date ? new Date(e.date).toISOString().slice(0, 10) : "",
+          created_at: e.created_at,
+        }))
+      );
+    }
   };
 
   const handleDeleteExpense = async (id: string) => {
     await supabase.from("expenses").delete().eq("id", id);
+    fetchExpenses();
+  };
+
+  const handleSaveEdit = async (payload: {
+    amount: number;
+    category: string;
+    description: string;
+    date: string;
+  }) => {
+    if (!editingTransaction) return;
+    await supabase
+      .from("expenses")
+      .update({
+        amount: payload.amount,
+        category: payload.category,
+        description: payload.description,
+        date: payload.date,
+      })
+      .eq("id", editingTransaction.id);
+    setEditingTransaction(null);
     fetchExpenses();
   };
 
@@ -155,18 +197,14 @@ export default function DashboardPage() {
       className="rounded-lg border p-2 text-sm dark:bg-slate-900"
       value={category}
       onChange={(e) => setCategory(e.target.value)}
+      aria-label="Category"
     >
       <option value="">Select Category</option>
-      <option>🍔 Food</option>
-      <option>🛒 Grocery</option>
-      <option>🧺 Laundry</option>
-      <option>✏️ Stationery</option>
-      <option>✈️ Travel</option>
-      <option>🛍 Shopping</option>
-      <option>💡 Bills</option>
-      <option>🎬 Entertainment</option>
-      <option>💊 Health</option>
-      <option>📦 Other</option>
+      {categories.map((c) => (
+        <option key={c.name} value={c.name}>
+          {c.icon} {c.name}
+        </option>
+      ))}
     </select>
 
     <input
@@ -256,31 +294,68 @@ export default function DashboardPage() {
           {expenses.length === 0 ? (
             <p>No expenses yet.</p>
           ) : (
-            expenses.map((exp) => (
-              <div
-              key={exp.id}
-              className="flex items-center justify-between rounded-lg bg-slate-100 px-3 py-2 dark:bg-slate-900/80"
-            >
-              <span>
-                {exp.category} · {exp.description}
-              </span>
-            
-              <div className="flex items-center gap-3">
-                <span className="font-medium text-emerald-400">
-                  -{formatCurrency(Number(exp.amount))}
-                </span>
-            
-                <button
-                  onClick={() => handleDeleteExpense(exp.id)}
-                  className="text-xs text-red-500 hover:text-red-600"
+            expenses.map((exp) => {
+              const cat = categories.find((c) => c.name === exp.category);
+              const icon = cat?.icon ?? "📦";
+              const dateLabel = exp.date
+                ? new Date(exp.date + "T12:00:00").toLocaleDateString("default", {
+                    month: "short",
+                    day: "numeric",
+                    year: "numeric",
+                  })
+                : "—";
+              return (
+                <div
+                  key={exp.id}
+                  className="flex flex-col gap-1 rounded-lg bg-slate-100 px-3 py-2 dark:bg-slate-900/80"
                 >
-                  Delete
-                </button>
-              </div>
-            </div>
-            ))
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0 flex-1">
+                      <p className="font-medium text-slate-800 dark:text-slate-100">
+                        {icon} {exp.category || "Other"}
+                      </p>
+                      {exp.description && (
+                        <p className="truncate text-slate-600 dark:text-slate-400">
+                          {exp.description}
+                        </p>
+                      )}
+                      <p className="mt-0.5 text-[11px] text-slate-500 dark:text-slate-400">
+                        {dateLabel}
+                      </p>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-2">
+                      <span className="font-medium text-emerald-600 dark:text-emerald-400">
+                        -{formatCurrency(Number(exp.amount))}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setEditingTransaction(exp)}
+                        className="rounded px-2 py-1 text-xs text-slate-600 hover:bg-slate-200 dark:text-slate-300 dark:hover:bg-slate-700"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteExpense(exp.id)}
+                        className="text-xs text-red-500 hover:text-red-600"
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })
           )}
         </div>
+
+        {editingTransaction && (
+          <EditExpenseModal
+            expense={editingTransaction}
+            onSave={handleSaveEdit}
+            onCancel={() => setEditingTransaction(null)}
+          />
+        )}
       </div>
     </div>
   );
