@@ -11,6 +11,7 @@ import {
   Cell,
   Tooltip,
   ResponsiveContainer,
+  Legend,
 } from "recharts";
 
 type ExpenseItem = {
@@ -37,7 +38,8 @@ export default function DashboardPage() {
     const { data } = await supabase
       .from("expenses")
       .select("*")
-      .order("created_at", { ascending: false });
+      .order("created_at", { ascending: false })
+      .limit(50);
 
     if (data) {
       setExpenses(
@@ -131,10 +133,14 @@ export default function DashboardPage() {
     );
   });
   
-  const categoryData = Object.values(
-    monthlyExpenses.reduce((acc: any, exp) => {
+  type CategoryDatum = { name: string; value: number };
+  const categoryData: CategoryDatum[] = Object.values(
+    monthlyExpenses.reduce<Record<string, CategoryDatum>>((acc, exp) => {
       if (!acc[exp.category]) {
-        acc[exp.category] = { name: categories.find(c => c.name === exp.category)?.name || exp.category, value: 0 };
+        acc[exp.category] = {
+          name: categories.find((c) => c.name === exp.category)?.name ?? exp.category,
+          value: 0,
+        };
       }
       acc[exp.category].value += Number(exp.amount);
       return acc;
@@ -148,6 +154,11 @@ export default function DashboardPage() {
     "#06B6D4",
     "#A855F7",
   ];
+
+  const totalForPie: number = categoryData.reduce(
+    (s, d) => s + (d.value ?? 0),
+    0
+  );
 
   const formatCurrency = (value: number) =>
     new Intl.NumberFormat("en-US", {
@@ -256,45 +267,91 @@ export default function DashboardPage() {
     Spending by category
   </p>
 
-  <div className="mt-4 h-64">
-    {categoryData.length === 0 ? (
-      <p className="text-sm text-slate-500 dark:text-slate-400">
-        No expense data yet.
-      </p>
-    ) : (
-      <ResponsiveContainer width="100%" height="100%">
-        <PieChart>
-          <Pie
-            data={categoryData}
-            dataKey="value"
-            nameKey="name"
-            outerRadius={80}
-            label
-          >
-            {categoryData.map((entry: any, index: number) => (
-              <Cell
-                key={`cell-${index}`}
-                fill={COLORS[index % COLORS.length]}
-              />
-            ))}
-          </Pie>
-          <Tooltip />
-        </PieChart>
-      </ResponsiveContainer>
-    )}
+  <div className="mt-4 flex flex-col gap-4 sm:flex-row sm:items-center">
+    <div className="h-64 w-full sm:w-2/5">
+      {categoryData.length === 0 ? (
+        <p className="text-sm text-slate-500 dark:text-slate-400">
+          No expense data yet.
+        </p>
+      ) : (
+        <ResponsiveContainer width="100%" height="100%">
+          <PieChart>
+            <Pie
+              data={categoryData}
+              dataKey="value"
+              nameKey="name"
+              outerRadius={80}
+              innerRadius={4}
+              paddingAngle={2}
+              stroke="none"
+              animationDuration={300}
+              activeShape={{ scale: 1.05, strokeWidth: 2, stroke: "rgba(255,255,255,0.8)", filter: "drop-shadow(0 2px 4px rgba(0,0,0,0.1))" }}
+            >
+              {categoryData.map((entry: any, index: number) => (
+                <Cell
+                  key={`cell-${index}`}
+                  fill={COLORS[index % COLORS.length]}
+                />
+              ))}
+            </Pie>
+            <Tooltip
+              content={({ active, payload }) => {
+                if (!active || !payload?.length || !totalForPie) return null;
+                const item = payload[0] as { value?: number; name?: string } | undefined;
+                const value = Number(item?.value ?? 0);
+                const pct =
+                  totalForPie > 0
+                    ? ((value / totalForPie) * 100).toFixed(1)
+                    : "0";
+                return (
+                  <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 shadow-lg dark:border-slate-700 dark:bg-slate-900">
+                    <p className="text-xs font-medium text-slate-900 dark:text-slate-50">
+                      {item?.name}
+                    </p>
+                    <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+                      {formatCurrency(value)}
+                    </p>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                      {pct}%
+                    </p>
+                  </div>
+                );
+              }}
+            />
+            <Legend
+              layout="vertical"
+              align="right"
+              verticalAlign="middle"
+              formatter={(value: string, entry: { color?: string; payload?: { value?: number } }) => (
+                <span className="text-xs text-slate-700 dark:text-slate-200">
+                  <span
+                    className="mr-1.5 inline-block h-2.5 w-2.5 rounded-full"
+                    style={{ backgroundColor: entry?.color }}
+                  />
+                  {value} {formatCurrency(entry?.payload?.value ?? 0)}
+                </span>
+              )}
+            />
+          </PieChart>
+        </ResponsiveContainer>
+      )}
+    </div>
   </div>
 </div>
-      {/* Recent Activity (Real Data Now) */}
+      {/* Recent Activity (Real Data Now) - exactly 10 items in view, scroll if more */}
       <div className="rounded-2xl border bg-white p-4 dark:bg-slate-950/80">
         <p className="text-xs font-medium text-slate-600 dark:text-slate-300">
           Recent activity
         </p>
 
-        <div className="mt-3 space-y-2 text-xs">
+        <div
+          className="mt-3 space-y-2 text-xs overflow-y-auto"
+          style={{ height: "32rem", maxHeight: "32rem" }}
+        >
           {expenses.length === 0 ? (
             <p>No expenses yet.</p>
           ) : (
-            expenses.map((exp) => {
+            expenses.slice(0, 50).map((exp) => {
               const cat = categories.find((c) => c.name === exp.category);
               const icon = cat?.icon ?? "📦";
               const dateLabel = exp.date
