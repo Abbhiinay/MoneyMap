@@ -1732,35 +1732,45 @@ export default function GroupsPage() {
   }, [currencyCode]);
 
   const handleCreateGroup = useCallback(
-    async (payload: {
-      name: string;
-      description: string;
-      members: string[];
-      date: string;
-    }) => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-      const members: Member[] = [
-        { id: CURRENT_USER_ID, name: "You" },
-        ...payload.members.map((m, idx) => ({
-          id: `m-${idx}-${m.replace(/\s/g, "")}`,
-          name: m,
-        })),
-      ];
-      const created = await dbCreateGroup(user.id, {
-        name: payload.name,
-        description: payload.description,
-        members,
-      });
-      const newGroup = dbGroupToGroup(
-        { ...created, expenses: [] },
-        currencyCode
-      );
-      setGroups((prev) => [newGroup, ...prev]);
-      setSelectedGroupId(newGroup.id);
+    async (payload: { name: string; description: string; members: string[] }) => {
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return;
+  
+        const members: Member[] = [
+          { id: CURRENT_USER_ID, name: "You" },
+          ...payload.members.map((m, idx) => ({
+            id: `m-${idx}-${m.replace(/\s/g, "")}`,
+            name: m,
+          })),
+        ];
+  
+        const created = await dbCreateGroup(user.id, {
+          name: payload.name,
+          description: payload.description,
+          members,
+        });
+  
+        if (!created) {
+          throw new Error("Group creation failed");
+        }
+  
+        const newGroup = dbGroupToGroup(
+          { ...created, expenses: [] },
+          currencyCode
+        );
+  
+        setGroups((prev) => [newGroup, ...prev]);
+        setSelectedGroupId(newGroup.id);
+  
+      } catch (err) {
+        console.error("Create group error:", err);
+        alert((err as Error)?.message || "Failed to create group");
+      }
     },
     [currencyCode]
   );
+  
 
   const handleUpdateGroup = useCallback(
     async (groupId: string, payload: { name: string; description: string; members: Member[] }) => {
