@@ -198,7 +198,7 @@ export default function Sidebar() {
           <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
             {gmailConnected
               ? "No transactions detected today."
-              : "Connect Gmail to automatically detect today&apos;s transactions."}
+              : syncError || "Connect Gmail to automatically detect today&apos;s transactions."}
           </p>
         )}
 
@@ -238,4 +238,3 @@ export default function Sidebar() {
     </aside>
   );
 }
-

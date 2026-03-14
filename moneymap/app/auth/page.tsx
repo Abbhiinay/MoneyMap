@@ -90,12 +90,26 @@ export default function AuthPage() {
   const handleGoogleLogin = async () => {
     setError("");
     setLoading(true);
-    await supabase.auth.signInWithOAuth({
-      provider: "google",
-      options: {
-        redirectTo: "http://localhost:3000/dashboard",
-      },
-    });
+    try {
+      const redirectUrl = typeof window !== "undefined"
+        ? `${window.location.origin}/dashboard`
+        : "http://localhost:3000/dashboard";
+
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: {
+          redirectTo: redirectUrl,
+        },
+      });
+
+      if (error) {
+        setError(error.message || "Google sign-in failed. Please ensure Google OAuth is enabled in your Supabase project settings.");
+        setLoading(false);
+      }
+    } catch (err) {
+      setError("An unexpected error occurred. Please try again.");
+      setLoading(false);
+    }
   };
 
   return (
@@ -183,6 +197,15 @@ export default function AuthPage() {
           <div className="glow-orb glow-orb-1" />
           <div className="glow-orb glow-orb-2" />
 
+          {/* Previous Button */}
+          <button
+            className="carousel-nav carousel-nav-prev"
+            onClick={() => setCurrentSlide((prev) => (prev - 1 + carouselSlides.length) % carouselSlides.length)}
+            aria-label="Previous slide"
+          >
+            ←
+          </button>
+
           {/* Carousel */}
           <div className="carousel-wrapper">
             {carouselSlides.map((slide, idx) => (
@@ -190,12 +213,23 @@ export default function AuthPage() {
                 key={idx}
                 className={`carousel-slide ${idx === currentSlide ? "active" : ""}`}
               >
-                <div className="slide-icon">{slide.icon}</div>
-                <h2 className="slide-title">{slide.title}</h2>
-                <p className="slide-description">{slide.description}</p>
+                <div className="glassmorphism-card">
+                  <div className="slide-icon">{slide.icon}</div>
+                  <h2 className="slide-title">{slide.title}</h2>
+                  <p className="slide-description">{slide.description}</p>
+                </div>
               </div>
             ))}
           </div>
+
+          {/* Next Button */}
+          <button
+            className="carousel-nav carousel-nav-next"
+            onClick={() => setCurrentSlide((prev) => (prev + 1) % carouselSlides.length)}
+            aria-label="Next slide"
+          >
+            →
+          </button>
 
           {/* Carousel Indicators */}
           <div className="carousel-indicators">
@@ -478,7 +512,7 @@ export default function AuthPage() {
         /* Carousel */
         .carousel-wrapper {
           position: relative;
-          height: 300px;
+          height: 320px;
           display: flex;
           align-items: center;
           justify-content: center;
@@ -489,7 +523,7 @@ export default function AuthPage() {
           position: absolute;
           width: 100%;
           opacity: 0;
-          transform: scale(0.8) rotateY(-20deg);
+          transform: scale(0.75) rotateY(-25deg);
           transition: all 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
           pointer-events: none;
           padding: 20px;
@@ -501,10 +535,33 @@ export default function AuthPage() {
           pointer-events: auto;
         }
 
+        /* Glassmorphism Card */
+        .glassmorphism-card {
+          background: rgba(255, 255, 255, 0.15);
+          backdrop-filter: blur(10px);
+          border: 1px solid rgba(255, 255, 255, 0.25);
+          border-radius: 16px;
+          padding: 32px 24px;
+          box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+          transition: all 0.3s ease;
+        }
+
+        .carousel-slide.active .glassmorphism-card {
+          background: rgba(255, 255, 255, 0.2);
+          border: 1px solid rgba(255, 255, 255, 0.35);
+          box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+        }
+
+        .glassmorphism-card:hover {
+          background: rgba(255, 255, 255, 0.25);
+          border: 1px solid rgba(255, 255, 255, 0.35);
+        }
+
         .slide-icon {
           font-size: 64px;
           margin-bottom: 16px;
           animation: bounce 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
+          display: block;
         }
 
         @keyframes bounce {
@@ -529,7 +586,47 @@ export default function AuthPage() {
         .slide-description {
           font-size: 14px;
           line-height: 1.6;
-          color: rgba(255, 255, 255, 0.9);
+          color: rgba(255, 255, 255, 0.95);
+        }
+
+        /* Carousel Navigation Arrows */
+        .carousel-nav {
+          position: absolute;
+          top: 50%;
+          transform: translateY(-50%);
+          width: 48px;
+          height: 48px;
+          border: none;
+          background: rgba(255, 255, 255, 0.15);
+          backdrop-filter: blur(10px);
+          border: 1px solid rgba(255, 255, 255, 0.25);
+          border-radius: 50%;
+          color: #fff;
+          font-size: 24px;
+          cursor: pointer;
+          transition: all 0.3s ease;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          z-index: 20;
+        }
+
+        .carousel-nav:hover {
+          background: rgba(255, 255, 255, 0.25);
+          border: 1px solid rgba(255, 255, 255, 0.35);
+          transform: translateY(-50%) scale(1.1);
+        }
+
+        .carousel-nav:active {
+          transform: translateY(-50%) scale(0.95);
+        }
+
+        .carousel-nav-prev {
+          left: -60px;
+        }
+
+        .carousel-nav-next {
+          right: -60px;
         }
 
         /* Carousel Indicators */
