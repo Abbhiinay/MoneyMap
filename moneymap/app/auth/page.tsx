@@ -13,10 +13,6 @@ export default function AuthPage() {
   const [error, setError] = useState("");
 
   const handleSignUp = async () => {
-    if (!supabase) {
-      setError("Supabase is not configured. Please set up your environment variables.");
-      return;
-    }
     setError("");
     setLoading(true);
     const { data, error: signUpError } = await supabase.auth.signUp({
@@ -40,10 +36,6 @@ export default function AuthPage() {
   };
 
   const handleLogin = async () => {
-    if (!supabase) {
-      setError("Supabase is not configured. Please set up your environment variables.");
-      return;
-    }
     setError("");
     setLoading(true);
     const { error: loginError } = await supabase.auth.signInWithPassword({
@@ -60,10 +52,6 @@ export default function AuthPage() {
   };
 
   const handleGoogleLogin = async () => {
-    if (!supabase) {
-      setError("Supabase is not configured. Please set up your environment variables.");
-      return;
-    }
     setError("");
     setLoading(true);
     await supabase.auth.signInWithOAuth({
@@ -372,8 +360,8 @@ export default function AuthPage() {
         }
 
         .auth-right {
-          background: linear-gradient(135deg, #ccff00 0%, #b3e600 100%);
-          color: #000;
+          background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+          color: #fff;
           padding: 40px;
           display: flex;
           align-items: center;
@@ -391,8 +379,8 @@ export default function AuthPage() {
           font-weight: 700;
           letter-spacing: 1px;
           text-transform: uppercase;
-          color: #000;
-          opacity: 0.6;
+          color: #d1fae5;
+          opacity: 0.8;
           margin-bottom: 16px;
         }
 
@@ -401,13 +389,13 @@ export default function AuthPage() {
           font-weight: 700;
           line-height: 1.3;
           margin-bottom: 16px;
-          color: #000;
+          color: #fff;
         }
 
         .feature-subtitle {
           font-size: 14px;
           line-height: 1.6;
-          color: rgba(0, 0, 0, 0.7);
+          color: rgba(255, 255, 255, 0.85);
         }
 
         @media (max-width: 768px) {
