@@ -42,25 +42,53 @@ function extractAmountAndMerchant(text: string): {
 } {
   const cleaned = text.replace(/\s+/g, " ");
 
-  const amountMatch =
+  // Try to find amount in different formats (INR, $, etc.)
+  let amount: number | null = null;
+
+  // INR format (₹ or Rs.)
+  const inrMatch =
     cleaned.match(/(?:₹|rs\.?|inr)\s*([\d,]+(?:\.\d{1,2})?)/i) ??
     cleaned.match(/([\d,]+(?:\.\d{1,2})?)\s*(?:INR|Rs\.?)/i);
 
-  const amount = amountMatch
-    ? Number(amountMatch[1].replace(/,/g, ""))
-    : null;
+  if (inrMatch) {
+    amount = Number(inrMatch[1].replace(/,/g, ""));
+  } else {
+    // USD format or generic currency
+    const currencyMatch = cleaned.match(/\$\s*([\d,]+(?:\.\d{1,2})?)/);
+    if (currencyMatch) {
+      amount = Number(currencyMatch[1].replace(/,/g, ""));
+    } else {
+      // Try to find "Order total", "Amount", "Total" patterns
+      const totalMatch = cleaned.match(
+        /(?:order\s+total|amount|total|price|cost)[\s:]*₹?\$?\s*([\d,]+(?:\.\d{1,2})?)/i
+      );
+      if (totalMatch) {
+        amount = Number(totalMatch[1].replace(/,/g, ""));
+      }
+    }
+  }
 
   let merchant: string | null = null;
 
-  const toMatch = cleaned.match(/\bto\s+([A-Za-z][A-Za-z0-9 &.-]{2,40})/i);
-  if (toMatch) {
-    merchant = toMatch[1].trim();
+  // Check for Amazon order
+  if (cleaned.toLowerCase().includes("amazon")) {
+    merchant = "Amazon";
+  } else if (cleaned.toLowerCase().includes("flipkart")) {
+    merchant = "Flipkart";
+  } else if (cleaned.toLowerCase().includes("myntra")) {
+    merchant = "Myntra";
   } else {
-    const atMatch = cleaned.match(
-      /\b(?:at|from)\s+([A-Za-z][A-Za-z0-9 &.-]{2,40})/i
-    );
-    if (atMatch) {
-      merchant = atMatch[1].trim();
+    // Try to extract merchant from "to" or "at" patterns
+    const toMatch = cleaned.match(/\bto\s+([A-Za-z][A-Za-z0-9 &.-]{2,40})/i);
+    if (toMatch) {
+      merchant = toMatch[1].trim();
+    } else {
+      const atMatch = cleaned.match(
+        /\b(?:at|from)\s+([A-Za-z][A-Za-z0-9 &.-]{2,40})/i
+      );
+      if (atMatch) {
+        merchant = atMatch[1].trim();
+      }
     }
   }
 
@@ -110,6 +138,14 @@ export async function GET(request: NextRequest) {
         "UPI",
         "transaction",
         "payment",
+        "order confirmation",
+        "order placed",
+        "purchase",
+        "invoice",
+        "receipt",
+        "amazon",
+        "flipkart",
+        "shopping",
       ];
       const query = `after:${yyyy}/${mm}/${dd} (${keywords.join(" OR ")})`;
 
@@ -254,4 +290,3 @@ export async function GET(request: NextRequest) {
 
   return NextResponse.json({ detected });
 }
-

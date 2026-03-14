@@ -1,8 +1,36 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { useRouter } from "next/navigation";
+
+const carouselSlides = [
+  {
+    title: "Track Every Dollar",
+    description: "Easily monitor all your expenses with smart categories and real-time insights.",
+    icon: "💰",
+  },
+  {
+    title: "Split Bills Effortlessly",
+    description: "Share expenses with friends and groups. Settle up automatically with MoneyMap.",
+    icon: "👥",
+  },
+  {
+    title: "Smart Email Integration",
+    description: "Your Gmail keeps you updated. We read order confirmations and add expenses automatically.",
+    icon: "📧",
+  },
+  {
+    title: "Real-Time Analytics",
+    description: "Visualize your spending patterns with beautiful charts and detailed reports.",
+    icon: "📊",
+  },
+  {
+    title: "Multicurrency Support",
+    description: "Track expenses across different currencies. Perfect for travelers and global spenders.",
+    icon: "🌍",
+  },
+];
 
 export default function AuthPage() {
   const router = useRouter();
@@ -11,6 +39,14 @@ export default function AuthPage() {
   const [isSignUp, setIsSignUp] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [currentSlide, setCurrentSlide] = useState(0);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCurrentSlide((prev) => (prev + 1) % carouselSlides.length);
+    }, 4000);
+    return () => clearInterval(timer);
+  }, []);
 
   const handleSignUp = async () => {
     setError("");
@@ -140,12 +176,38 @@ export default function AuthPage() {
         </div>
       </div>
 
-      {/* Right Side - Feature Showcase */}
+      {/* Right Side - Feature Carousel */}
       <div className="auth-right">
-        <div className="feature-showcase">
-          <span className="feature-label">OUR VISION</span>
-          <h2 className="feature-title">MoneyMap is the first platform leveraging Self-Managing Expenses</h2>
-          <p className="feature-subtitle">Track, split, and manage money effortlessly with real-time analytics and group expense splitting.</p>
+        <div className="carousel-container">
+          {/* Glow Effect */}
+          <div className="glow-orb glow-orb-1" />
+          <div className="glow-orb glow-orb-2" />
+
+          {/* Carousel */}
+          <div className="carousel-wrapper">
+            {carouselSlides.map((slide, idx) => (
+              <div
+                key={idx}
+                className={`carousel-slide ${idx === currentSlide ? "active" : ""}`}
+              >
+                <div className="slide-icon">{slide.icon}</div>
+                <h2 className="slide-title">{slide.title}</h2>
+                <p className="slide-description">{slide.description}</p>
+              </div>
+            ))}
+          </div>
+
+          {/* Carousel Indicators */}
+          <div className="carousel-indicators">
+            {carouselSlides.map((_, idx) => (
+              <button
+                key={idx}
+                className={`indicator-dot ${idx === currentSlide ? "active" : ""}`}
+                onClick={() => setCurrentSlide(idx)}
+                aria-label={`Go to slide ${idx + 1}`}
+              />
+            ))}
+          </div>
         </div>
       </div>
 
@@ -366,36 +428,138 @@ export default function AuthPage() {
           display: flex;
           align-items: center;
           justify-content: center;
+          position: relative;
+          overflow: hidden;
         }
 
-        .feature-showcase {
-          text-align: left;
-          max-width: 360px;
+        .carousel-container {
+          position: relative;
+          width: 100%;
+          max-width: 400px;
+          text-align: center;
         }
 
-        .feature-label {
-          display: inline-block;
-          font-size: 11px;
-          font-weight: 700;
-          letter-spacing: 1px;
-          text-transform: uppercase;
-          color: #d1fae5;
-          opacity: 0.8;
+        /* Glow Effects */
+        .glow-orb {
+          position: absolute;
+          border-radius: 50%;
+          opacity: 0.3;
+          filter: blur(40px);
+          animation: float 6s ease-in-out infinite;
+        }
+
+        .glow-orb-1 {
+          width: 200px;
+          height: 200px;
+          background: rgba(255, 255, 255, 0.4);
+          top: -50px;
+          right: -50px;
+          animation-delay: 0s;
+        }
+
+        .glow-orb-2 {
+          width: 150px;
+          height: 150px;
+          background: rgba(255, 255, 255, 0.2);
+          bottom: -30px;
+          left: -30px;
+          animation-delay: 3s;
+        }
+
+        @keyframes float {
+          0%, 100% {
+            transform: translateY(0px);
+          }
+          50% {
+            transform: translateY(-20px);
+          }
+        }
+
+        /* Carousel */
+        .carousel-wrapper {
+          position: relative;
+          height: 300px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          perspective: 1000px;
+        }
+
+        .carousel-slide {
+          position: absolute;
+          width: 100%;
+          opacity: 0;
+          transform: scale(0.8) rotateY(-20deg);
+          transition: all 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
+          pointer-events: none;
+          padding: 20px;
+        }
+
+        .carousel-slide.active {
+          opacity: 1;
+          transform: scale(1) rotateY(0deg);
+          pointer-events: auto;
+        }
+
+        .slide-icon {
+          font-size: 64px;
           margin-bottom: 16px;
+          animation: bounce 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
         }
 
-        .feature-title {
+        @keyframes bounce {
+          0% {
+            transform: scale(0.5);
+            opacity: 0;
+          }
+          100% {
+            transform: scale(1);
+            opacity: 1;
+          }
+        }
+
+        .slide-title {
           font-size: 28px;
           font-weight: 700;
           line-height: 1.3;
-          margin-bottom: 16px;
+          margin-bottom: 12px;
           color: #fff;
         }
 
-        .feature-subtitle {
+        .slide-description {
           font-size: 14px;
           line-height: 1.6;
-          color: rgba(255, 255, 255, 0.85);
+          color: rgba(255, 255, 255, 0.9);
+        }
+
+        /* Carousel Indicators */
+        .carousel-indicators {
+          display: flex;
+          justify-content: center;
+          gap: 8px;
+          margin-top: 24px;
+          position: relative;
+          z-index: 10;
+        }
+
+        .indicator-dot {
+          width: 8px;
+          height: 8px;
+          border-radius: 50%;
+          background: rgba(255, 255, 255, 0.4);
+          border: none;
+          cursor: pointer;
+          transition: all 0.3s ease;
+        }
+
+        .indicator-dot.active {
+          background: #fff;
+          width: 24px;
+          border-radius: 4px;
+        }
+
+        .indicator-dot:hover {
+          background: rgba(255, 255, 255, 0.7);
         }
 
         @media (max-width: 768px) {
