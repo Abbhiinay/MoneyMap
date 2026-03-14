@@ -23,6 +23,17 @@ type ExpenseItem = {
   created_at?: string;
 };
 
+type DetectedTransaction = {
+  id: string;
+  amount: number;
+  merchant: string;
+  predictedCategory: string;
+  emailId: string;
+  source: string;
+  status: string;
+  date: string;
+};
+
 export default function DashboardPage() {
   const [amount, setAmount] = useState("");
   const [category, setCategory] = useState("");
@@ -32,6 +43,11 @@ export default function DashboardPage() {
     () => new Date().toISOString().split("T")[0]
   );
   const [editingTransaction, setEditingTransaction] = useState<ExpenseItem | null>(null);
+  const [detected, setDetected] = useState<DetectedTransaction[]>([]);
+  const [reviewingDetected, setReviewingDetected] = useState<DetectedTransaction | null>(null);
+  const [reviewCategory, setReviewCategory] = useState("");
+  const [reviewDescription, setReviewDescription] = useState("");
+  const [loadingDetected, setLoadingDetected] = useState(false);
   const { currency, loading: currencyLoading } = useUserCurrency();
 
   const fetchExpenses = async () => {
@@ -52,6 +68,19 @@ export default function DashboardPage() {
           created_at: e.created_at,
         }))
       );
+    }
+  };
+
+  const fetchDetected = async () => {
+    setLoadingDetected(true);
+    try {
+      const res = await fetch("/api/gmail/today-transactions");
+      if (!res.ok) return;
+      const json = await res.json();
+      const items: DetectedTransaction[] = json.detected ?? [];
+      setDetected(items);
+    } finally {
+      setLoadingDetected(false);
     }
   };
 
@@ -82,6 +111,7 @@ export default function DashboardPage() {
 
   useEffect(() => {
     void fetchExpenses();
+    void fetchDetected();
   }, []);
 
   const handleAddExpense = async () => {
@@ -338,6 +368,77 @@ export default function DashboardPage() {
     </div>
   </div>
 </div>
+      {/* Detected Transactions Today */}
+      <div className="rounded-2xl border bg-white p-4 dark:bg-slate-950/80">
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-xs font-medium text-slate-600 dark:text-slate-300">
+            Detected Transactions Today
+          </p>
+          <button
+            type="button"
+            onClick={fetchDetected}
+            className="rounded-full border border-slate-200 px-2 py-1 text-[11px] font-medium text-slate-600 hover:border-emerald-400 hover:text-emerald-500 dark:border-slate-700 dark:text-slate-300 dark:hover:border-emerald-500 dark:hover:text-emerald-300"
+            disabled={loadingDetected}
+          >
+            Refresh
+          </button>
+        </div>
+
+        {loadingDetected ? (
+          <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+            Loading detected transactions...
+          </p>
+        ) : detected.length === 0 ? (
+          <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+            No transactions detected today.
+          </p>
+        ) : (
+          <div className="mt-3 space-y-2 text-xs">
+            {detected.map((tx) => (
+              <div
+                key={tx.id}
+                className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2 dark:bg-slate-900/80"
+              >
+                <div className="min-w-0 flex-1">
+                  <p className="font-medium text-slate-800 dark:text-slate-100">
+                    ₹{tx.amount.toFixed(0)} – {tx.merchant}
+                  </p>
+                  <p className="mt-0.5 text-[11px] text-slate-500 dark:text-slate-400">
+                    Category: {tx.predictedCategory} · Source: {tx.source} ·{" "}
+                    {tx.date}
+                  </p>
+                </div>
+                <div className="ml-3 flex shrink-0 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setReviewingDetected(tx);
+                      setReviewCategory(tx.predictedCategory || "");
+                      setReviewDescription(tx.merchant || "");
+                    }}
+                    className="rounded px-2 py-1 text-[11px] text-slate-600 hover:bg-slate-200 dark:text-slate-300 dark:hover:bg-slate-700"
+                  >
+                    Edit &amp; Save
+                  </button>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      await fetch(`/api/detected-transaction/${tx.id}`, {
+                        method: "DELETE",
+                      });
+                      void fetchDetected();
+                    }}
+                    className="text-[11px] text-red-500 hover:text-red-600"
+                  >
+                    Delete
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
       {/* Recent Activity (Real Data Now) - exactly 10 items in view, scroll if more */}
       <div className="rounded-2xl border bg-white p-4 dark:bg-slate-950/80">
         <p className="text-xs font-medium text-slate-600 dark:text-slate-300">
@@ -414,6 +515,101 @@ export default function DashboardPage() {
           />
         )}
       </div>
+
+      {reviewingDetected && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40">
+          <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-4 shadow-xl dark:border-slate-700 dark:bg-slate-900">
+            <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+              Review detected transaction
+            </h2>
+            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+              Amount: ₹{reviewingDetected.amount.toFixed(0)} · Merchant:{" "}
+              {reviewingDetected.merchant}
+            </p>
+
+            <div className="mt-4 space-y-3 text-xs">
+              <div>
+                <label className="mb-1 block text-[11px] font-medium text-slate-600 dark:text-slate-300">
+                  Category
+                </label>
+                <select
+                  className="w-full rounded-lg border border-slate-200 bg-white p-2 text-xs dark:border-slate-700 dark:bg-slate-900"
+                  value={reviewCategory}
+                  onChange={(e) => setReviewCategory(e.target.value)}
+                >
+                  <option value="">Uncategorized</option>
+                  {categories.map((c) => (
+                    <option key={c.name} value={c.name}>
+                      {c.icon} {c.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="mb-1 block text-[11px] font-medium text-slate-600 dark:text-slate-300">
+                  Description
+                </label>
+                <input
+                  type="text"
+                  className="w-full rounded-lg border border-slate-200 bg-white p-2 text-xs dark:border-slate-700 dark:bg-slate-900"
+                  value={reviewDescription}
+                  onChange={(e) => setReviewDescription(e.target.value)}
+                  placeholder="Optional description"
+                />
+              </div>
+            </div>
+
+            <div className="mt-4 flex justify-between gap-2 text-xs">
+              <button
+                type="button"
+                onClick={() => setReviewingDetected(null)}
+                className="rounded-lg border border-slate-200 px-3 py-1.5 text-slate-600 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+              >
+                Cancel
+              </button>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={async () => {
+                    await fetch(
+                      `/api/detected-transaction/${reviewingDetected.id}`,
+                      { method: "DELETE" }
+                    );
+                    setReviewingDetected(null);
+                    void fetchDetected();
+                  }}
+                  className="rounded-lg border border-red-200 px-3 py-1.5 text-red-600 hover:bg-red-50 dark:border-red-700/60 dark:text-red-400 dark:hover:bg-red-950/40"
+                >
+                  Delete Transaction
+                </button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    await fetch("/api/expenses/from-detected", {
+                      method: "POST",
+                      headers: {
+                        "Content-Type": "application/json",
+                      },
+                      body: JSON.stringify({
+                        detectedId: reviewingDetected.id,
+                        category: reviewCategory,
+                        description: reviewDescription,
+                      }),
+                    });
+                    setReviewingDetected(null);
+                    void fetchExpenses();
+                    void fetchDetected();
+                  }}
+                  className="rounded-lg bg-emerald-600 px-3 py-1.5 text-white hover:bg-emerald-700"
+                >
+                  Save Expense
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

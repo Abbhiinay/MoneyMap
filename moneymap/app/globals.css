@@ -3,14 +3,13 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 :root {
-  /* Default to dark theme */
-  --background: #020617; /* slate-950 */
-  --foreground: #e5e7eb; /* slate-200 */
-}
-
-html.light {
   --background: #ffffff;
   --foreground: #0f172a; /* slate-900 */
+}
+
+.dark {
+  --background: #020617; /* slate-950 */
+  --foreground: #e5e7eb; /* slate-200 */
 }
 
 @theme inline {

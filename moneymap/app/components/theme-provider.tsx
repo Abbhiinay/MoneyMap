@@ -24,8 +24,11 @@ function applyThemeClass(theme: Theme) {
   if (typeof document === "undefined") return;
 
   const root = document.documentElement;
-  root.classList.remove("light", "dark");
-  root.classList.add(theme);
+  if (theme === "dark") {
+    root.classList.add("dark");
+  } else {
+    root.classList.remove("dark");
+  }
 }
 
 export function ThemeProvider({ children }: { children: ReactNode }) {

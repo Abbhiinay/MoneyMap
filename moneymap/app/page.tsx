@@ -1,5 +1,17 @@
+"use client";
+
 import ThemeToggle from "./components/theme-toggle";
+import ReviewsCarousel from "./components/landing/reviews-carousel";
 import Link from "next/link";
+import { motion } from "framer-motion";
+
+const sectionReveal = {
+  initial: { opacity: 0, y: 40 },
+  whileInView: { opacity: 1, y: 0 },
+  transition: { duration: 0.6 },
+  viewport: { once: true },
+};
+
 export default function Home() {
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-50 via-slate-50 to-slate-100 text-slate-900 transition-colors dark:from-slate-950 dark:via-slate-900 dark:to-slate-950 dark:text-slate-100">
@@ -18,6 +30,9 @@ export default function Home() {
           <nav className="hidden items-center gap-8 text-sm font-medium text-slate-300 md:flex">
             <a href="#features" className="transition hover:text-emerald-400">
               Features
+            </a>
+            <a href="#reviews" className="transition hover:text-emerald-400">
+              Reviews
             </a>
             <a href="#pricing" className="transition hover:text-emerald-400">
               Pricing
@@ -39,7 +54,10 @@ export default function Home() {
 
       <main className="mx-auto max-w-6xl px-6 pb-16 pt-12 text-slate-900 transition-colors dark:text-slate-100 lg:px-8 lg:pt-20">
         {/* Hero */}
-        <section className="grid gap-12 lg:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)] lg:items-center">
+        <motion.section
+          className="grid gap-12 lg:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)] lg:items-center"
+          {...sectionReveal}
+        >
           <div>
             <div className="inline-flex items-center gap-2 rounded-full border border-slate-300 bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600 transition-colors dark:border-slate-700 dark:bg-slate-900/80 dark:text-slate-300">
               <span className="h-1.5 w-1.5 rounded-full bg-emerald-500/80" />
@@ -118,12 +136,13 @@ export default function Home() {
               </div>
             </div>
           </div>
-        </section>
+        </motion.section>
 
         {/* Features */}
-        <section
+        <motion.section
           id="features"
           className="mt-20 border-t border-slate-200/80 pt-12 transition-colors dark:border-slate-800/80 lg:mt-24"
+          {...sectionReveal}
         >
           <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
             <div>
@@ -192,12 +211,32 @@ export default function Home() {
               </ul>
             </div>
           </div>
-        </section>
+        </motion.section>
+
+        {/* Reviews */}
+        <motion.section
+          id="reviews"
+          className="mt-20 border-t border-slate-200/80 pt-12 transition-colors dark:border-slate-800/80 lg:mt-24"
+          {...sectionReveal}
+        >
+          <div className="text-center">
+            <h2 className="text-2xl font-semibold tracking-tight text-slate-900 dark:text-slate-50 sm:text-3xl">
+              Loved by spenders and savers
+            </h2>
+            <p className="mt-2 mx-auto max-w-xl text-sm text-slate-600 dark:text-slate-300 sm:text-base">
+              See what others are saying about MoneyMap.
+            </p>
+          </div>
+          <div className="mt-10">
+            <ReviewsCarousel />
+          </div>
+        </motion.section>
 
         {/* Pricing teaser (anchor target) */}
-        <section
+        <motion.section
           id="pricing"
           className="mt-20 rounded-3xl border border-slate-200/80 bg-white px-6 py-8 text-center shadow-lg shadow-slate-200 transition-colors dark:border-slate-800/80 dark:bg-slate-950/60 dark:shadow-slate-950/60 sm:px-10 lg:mt-24"
+          {...sectionReveal}
         >
           <p className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-400">
             Simple pricing
@@ -222,7 +261,7 @@ export default function Home() {
               <span className="font-medium text-emerald-400">$7 / month</span>.
             </p>
           </div>
-        </section>
+        </motion.section>
       </main>
 
       {/* Footer */}
