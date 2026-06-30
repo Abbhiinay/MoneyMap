@@ -118,8 +118,8 @@ export default function AnalyticsPage() {
   };
 
   /**
-   * Returns all months that contain transactions.
-   * Output is "YYYY-MM" sorted newest -> oldest.
+   * Returns all months that contain transactions
+   * Output is "YYYY-MM" sorted newest -> oldest
    */
   function getAvailableMonths(transactions: Expense[]) {
     const months = new Set<string>();
