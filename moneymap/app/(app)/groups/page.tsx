@@ -10,7 +10,10 @@ import {
   deleteGroup as dbDeleteGroup,
   addGroupExpense as dbAddGroupExpense,
   deleteGroupExpense as dbDeleteGroupExpense,
+  addGroupSettlement as dbAddGroupSettlement,
+  joinGroup as dbJoinGroup,
 } from "@/lib/groupsDb";
+import { createGroupInvitations } from "@/lib/invitationsDb";
 import { supabase } from "@/lib/supabaseClient";
 
 const CURRENT_USER_ID = "you";
@@ -124,14 +127,14 @@ type NewGroupModalProps = {
     description: string;
     members: string[];
     date: string;
-  }) => void;
+  }) => Promise<string | boolean>;
 };
 
 type EditGroupModalProps = {
   open: boolean;
   group: Group | null;
   onClose: () => void;
-  onSave: (groupId: string, payload: { name: string; description: string; members: Member[] }) => void;
+  onSave: (groupId: string, payload: { name: string; description: string; members: Member[] }) => Promise<boolean>;
 };
 
 type NewExpenseModalProps = {
@@ -145,7 +148,7 @@ type NewExpenseModalProps = {
     category: Expense["category"];
     totalAmount: number;
     shares: ExpenseShare[];
-  }) => void;
+  }) => Promise<boolean>;
 };
 
 type ExpenseFlowDiagramProps = {
@@ -168,8 +171,8 @@ type GroupDetailProps = {
   currencyCode: string;
   settledPayments: SettledPayment[];
   onDeleteExpense: (groupId: string, expenseId: string) => void;
-  onAddExpense: (groupId: string, payload: Omit<Expense, "id" | "createdAt">) => void;
-  onSettle: (payment: SettledPayment) => void;
+  onAddExpense: (groupId: string, payload: Omit<Expense, "id" | "createdAt">) => Promise<boolean>;
+  onSettle: (payment: SettledPayment) => Promise<boolean>;
 };
 
 type GroupCardProps = {
@@ -189,6 +192,7 @@ type DebtEdge = {
 };
 
 type SettledPayment = {
+  id?: string;
   groupId: string;
   fromId: string;
   toId: string;
@@ -268,12 +272,14 @@ function NewGroupModal({ open, onClose, onCreate }: NewGroupModalProps) {
   const [memberInput, setMemberInput] = useState("");
   const [members, setMembers] = useState<string[]>([]);
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
-  const [createdSlug, setCreatedSlug] = useState<string | null>(null);
+  const [createdGroupId, setCreatedGroupId] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   const inviteLink = useMemo(() => {
-    if (!createdSlug) return null;
-    return `moneymap.app/splitmap/${createdSlug}/invite`;
-  }, [createdSlug]);
+    if (!createdGroupId || typeof window === "undefined") return null;
+    return `${window.location.origin}/groups?join=${createdGroupId}`;
+  }, [createdGroupId]);
 
   const handleAddMember = () => {
     const trimmed = memberInput.trim();
@@ -284,7 +290,7 @@ function NewGroupModal({ open, onClose, onCreate }: NewGroupModalProps) {
     setMemberInput("");
   };
 
-  const handleCreate = () => {
+  const handleCreate = async () => {
     if (!name.trim()) return;
     const payload = {
       name: name.trim(),
@@ -292,13 +298,15 @@ function NewGroupModal({ open, onClose, onCreate }: NewGroupModalProps) {
       members,
       date,
     };
-    onCreate(payload);
-    const slug = name
-      .trim()
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/(^-|-$)+/g, "");
-    setCreatedSlug(slug || "group");
+    setSaving(true);
+    try {
+      const result = await onCreate(payload);
+      if (typeof result === "string") {
+        setCreatedGroupId(result);
+      }
+    } finally {
+      setSaving(false);
+    }
   };
 
   const resetAndClose = () => {
@@ -307,7 +315,8 @@ function NewGroupModal({ open, onClose, onCreate }: NewGroupModalProps) {
     setMemberInput("");
     setMembers([]);
     setDate(new Date().toISOString().slice(0, 10));
-    setCreatedSlug(null);
+    setCreatedGroupId(null);
+    setCopied(false);
     onClose();
   };
 
@@ -316,7 +325,7 @@ function NewGroupModal({ open, onClose, onCreate }: NewGroupModalProps) {
   return (
     <AnimatePresence>
       <motion.div
-        className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/40 backdrop-blur-sm"
+        className="fixed inset-0 z-40 flex items-center justify-center overflow-y-auto bg-slate-950/40 p-4 backdrop-blur-sm"
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
@@ -324,7 +333,7 @@ function NewGroupModal({ open, onClose, onCreate }: NewGroupModalProps) {
         <motion.div
           role="dialog"
           aria-modal="true"
-          className="w-full max-w-lg rounded-2xl border border-slate-200/80 bg-white p-5 text-sm shadow-xl shadow-slate-900/10 dark:border-slate-800/80 dark:bg-slate-950"
+          className="max-h-[calc(100vh-2rem)] w-full max-w-lg overflow-y-auto rounded-2xl border border-slate-200/80 bg-white p-5 text-sm shadow-xl shadow-slate-900/10 dark:border-slate-800/80 dark:bg-slate-950"
           initial={{ opacity: 0, y: 12, scale: 0.98 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
           exit={{ opacity: 0, y: 8, scale: 0.98 }}
@@ -349,6 +358,7 @@ function NewGroupModal({ open, onClose, onCreate }: NewGroupModalProps) {
               <input
                 value={name}
                 onChange={(e) => setName(e.target.value)}
+                disabled={saving || !!createdGroupId}
                 placeholder="Goa trip, Roommates, Hackathon..."
                 className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-900 outline-none ring-0 transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-50"
               />
@@ -361,6 +371,7 @@ function NewGroupModal({ open, onClose, onCreate }: NewGroupModalProps) {
               <textarea
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
+                disabled={saving || !!createdGroupId}
                 placeholder="Trip details, household notes, or what this group is for."
                 rows={2}
                 className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-900 outline-none ring-0 transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-50"
@@ -375,6 +386,7 @@ function NewGroupModal({ open, onClose, onCreate }: NewGroupModalProps) {
                 <input
                   value={memberInput}
                   onChange={(e) => setMemberInput(e.target.value)}
+                  disabled={saving || !!createdGroupId}
                   onKeyDown={(e) => {
                     if (e.key === "Enter") {
                       e.preventDefault();
@@ -387,6 +399,7 @@ function NewGroupModal({ open, onClose, onCreate }: NewGroupModalProps) {
                 <button
                   type="button"
                   onClick={handleAddMember}
+                  disabled={saving || !!createdGroupId}
                   className="rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-medium text-slate-50 shadow-sm hover:bg-slate-800 dark:bg-slate-50 dark:text-slate-900 dark:hover:bg-slate-200"
                 >
                   Add
@@ -400,15 +413,17 @@ function NewGroupModal({ open, onClose, onCreate }: NewGroupModalProps) {
                       className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-1 text-[11px] text-slate-700 dark:bg-slate-900 dark:text-slate-300"
                     >
                       {m}
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setMembers((prev) => prev.filter((x) => x !== m))
-                        }
-                        className="text-[10px] text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
-                      >
-                        ×
-                      </button>
+                      {!createdGroupId && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setMembers((prev) => prev.filter((x) => x !== m))
+                          }
+                          className="text-[10px] text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                        >
+                          ×
+                        </button>
+                      )}
                     </span>
                   ))}
                 </div>
@@ -423,6 +438,7 @@ function NewGroupModal({ open, onClose, onCreate }: NewGroupModalProps) {
                 type="date"
                 value={date}
                 onChange={(e) => setDate(e.target.value)}
+                disabled={saving || !!createdGroupId}
                 className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-900 outline-none ring-0 transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-50"
               />
             </div>
@@ -434,29 +450,45 @@ function NewGroupModal({ open, onClose, onCreate }: NewGroupModalProps) {
               onClick={resetAndClose}
               className="rounded-lg px-3 py-1.5 text-xs font-medium text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-900"
             >
-              Cancel
+              {createdGroupId ? "Done" : "Cancel"}
             </button>
-            <button
-              type="button"
-              onClick={handleCreate}
-              className="rounded-full bg-emerald-500 px-4 py-1.5 text-xs font-semibold text-slate-950 shadow-sm shadow-emerald-500/40 transition hover:bg-emerald-400"
-            >
-              Create group
-            </button>
+            {!createdGroupId && (
+              <button
+                type="button"
+                onClick={handleCreate}
+                disabled={saving || !name.trim()}
+                className="rounded-full bg-emerald-500 px-4 py-1.5 text-xs font-semibold text-slate-950 shadow-sm shadow-emerald-500/40 transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {saving ? "Creating..." : "Create group"}
+              </button>
+            )}
           </div>
 
           {inviteLink && (
             <motion.div
-              className="mt-3 rounded-xl bg-emerald-50 px-3 py-2 text-[11px] text-emerald-800 ring-1 ring-emerald-100 dark:bg-emerald-950/40 dark:text-emerald-100 dark:ring-emerald-900/60"
+              className="mt-4 rounded-xl bg-emerald-50 p-3 text-[11px] text-emerald-800 ring-1 ring-emerald-100 dark:bg-emerald-950/40 dark:text-emerald-100 dark:ring-emerald-900/60"
               initial={{ opacity: 0, y: 4 }}
               animate={{ opacity: 1, y: 0 }}
             >
-              <p className="font-medium">Shareable invite link</p>
-              <p className="mt-1 break-all font-mono text-[10px]">
+              <div className="flex items-center justify-between">
+                <p className="font-semibold">Shareable invite link created!</p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    void navigator.clipboard.writeText(inviteLink);
+                    setCopied(true);
+                    setTimeout(() => setCopied(false), 2000);
+                  }}
+                  className="rounded-lg bg-emerald-600 px-2.5 py-1 text-[10px] font-semibold text-white transition hover:bg-emerald-500"
+                >
+                  {copied ? "✓ Copied!" : "Copy Link"}
+                </button>
+              </div>
+              <p className="mt-1.5 break-all font-mono text-[10px] bg-white/60 dark:bg-black/40 p-1.5 rounded border border-emerald-200 dark:border-emerald-800">
                 {inviteLink}
               </p>
               <p className="mt-1 text-[10px] text-emerald-700 dark:text-emerald-200/80">
-                Members joining through this link automatically join the group.
+                Send this link to your members. When opened, they will automatically join this splitting group!
               </p>
             </motion.div>
           )}
@@ -471,6 +503,7 @@ function EditGroupModal({ open, group, onClose, onSave }: EditGroupModalProps) {
   const [description, setDescription] = useState("");
   const [memberInput, setMemberInput] = useState("");
   const [members, setMembers] = useState<Member[]>([]);
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (open && group) {
@@ -497,10 +530,14 @@ function EditGroupModal({ open, group, onClose, onSave }: EditGroupModalProps) {
     setMembers((prev) => prev.filter((m) => m.id !== id));
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!group || !name.trim()) return;
-    onSave(group.id, { name: name.trim(), description: description.trim(), members });
-    onClose();
+    setSaving(true);
+    try {
+      await onSave(group.id, { name: name.trim(), description: description.trim(), members });
+    } finally {
+      setSaving(false);
+    }
   };
 
   if (!open || !group) return null;
@@ -508,7 +545,7 @@ function EditGroupModal({ open, group, onClose, onSave }: EditGroupModalProps) {
   return (
     <AnimatePresence>
       <motion.div
-        className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/40 backdrop-blur-sm"
+        className="fixed inset-0 z-40 flex items-center justify-center overflow-y-auto bg-slate-950/40 p-4 backdrop-blur-sm"
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
@@ -516,7 +553,7 @@ function EditGroupModal({ open, group, onClose, onSave }: EditGroupModalProps) {
         <motion.div
           role="dialog"
           aria-modal="true"
-          className="w-full max-w-lg rounded-2xl border border-slate-200/80 bg-white p-5 text-sm shadow-xl shadow-slate-900/10 dark:border-slate-800/80 dark:bg-slate-950"
+          className="max-h-[calc(100vh-2rem)] w-full max-w-lg overflow-y-auto rounded-2xl border border-slate-200/80 bg-white p-5 text-sm shadow-xl shadow-slate-900/10 dark:border-slate-800/80 dark:bg-slate-950"
           initial={{ opacity: 0, y: 12, scale: 0.98 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
           exit={{ opacity: 0, y: 8, scale: 0.98 }}
@@ -528,6 +565,7 @@ function EditGroupModal({ open, group, onClose, onSave }: EditGroupModalProps) {
             <button
               type="button"
               onClick={onClose}
+              disabled={saving}
               className="rounded-full px-2 py-1 text-xs text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-900"
             >
               Close
@@ -542,6 +580,7 @@ function EditGroupModal({ open, group, onClose, onSave }: EditGroupModalProps) {
               <input
                 value={name}
                 onChange={(e) => setName(e.target.value)}
+                disabled={saving}
                 className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-900 outline-none ring-0 transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-50"
               />
             </div>
@@ -552,6 +591,7 @@ function EditGroupModal({ open, group, onClose, onSave }: EditGroupModalProps) {
               <textarea
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
+                disabled={saving}
                 rows={2}
                 className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-900 outline-none ring-0 transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-50"
               />
@@ -564,6 +604,7 @@ function EditGroupModal({ open, group, onClose, onSave }: EditGroupModalProps) {
                 <input
                   value={memberInput}
                   onChange={(e) => setMemberInput(e.target.value)}
+                  disabled={saving}
                   onKeyDown={(e) => {
                     if (e.key === "Enter") {
                       e.preventDefault();
@@ -576,6 +617,7 @@ function EditGroupModal({ open, group, onClose, onSave }: EditGroupModalProps) {
                 <button
                   type="button"
                   onClick={handleAddMember}
+                  disabled={saving}
                   className="rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-medium text-slate-50 dark:bg-slate-50 dark:text-slate-900"
                 >
                   Add
@@ -607,6 +649,7 @@ function EditGroupModal({ open, group, onClose, onSave }: EditGroupModalProps) {
             <button
               type="button"
               onClick={onClose}
+              disabled={saving}
               className="rounded-lg px-3 py-1.5 text-xs font-medium text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-900"
             >
               Cancel
@@ -614,9 +657,10 @@ function EditGroupModal({ open, group, onClose, onSave }: EditGroupModalProps) {
             <button
               type="button"
               onClick={handleSave}
-              className="rounded-full bg-emerald-500 px-4 py-1.5 text-xs font-semibold text-slate-950 shadow-sm shadow-emerald-500/40 hover:bg-emerald-400"
+              disabled={saving || !name.trim()}
+              className="rounded-full bg-emerald-500 px-4 py-1.5 text-xs font-semibold text-slate-950 shadow-sm shadow-emerald-500/40 hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              Save
+              {saving ? "Saving..." : "Save"}
             </button>
           </div>
         </motion.div>
@@ -641,6 +685,7 @@ function NewExpenseModal({
     () => members.map((m) => m.id)
   );
   const [manualShares, setManualShares] = useState<Record<string, string>>({});
+  const [saving, setSaving] = useState(false);
 
   const toggleMember = (memberId: string) => {
     setSelectedMemberIds((prev) =>
@@ -671,30 +716,44 @@ function NewExpenseModal({
   const isManualMismatch =
     !autoDivide && parsedTotal > 0 && Math.abs(manualTotal - parsedTotal) > 0.01;
 
-  const handleCreate = () => {
+  const handleCreate = async () => {
     if (!payerId || !label.trim() || parsedTotal <= 0) return;
     if (computedShares.length === 0) return;
     if (isManualMismatch) return;
-    onCreate({
-      payerId,
-      label: label.trim(),
-      category,
-      totalAmount: parsedTotal,
-      shares: computedShares,
-    });
-    onClose();
-    setLabel("");
-    setTotalAmount("");
-    setAutoDivide(true);
-    setManualShares({});
+    setSaving(true);
+    try {
+      const saved = await onCreate({
+        payerId,
+        label: label.trim(),
+        category,
+        totalAmount: parsedTotal,
+        shares: computedShares,
+      });
+      if (saved) {
+        onClose();
+        setLabel("");
+        setTotalAmount("");
+        setAutoDivide(true);
+        setManualShares({});
+      }
+    } finally {
+      setSaving(false);
+    }
   };
+
+  useEffect(() => {
+    if (!open) return;
+    setPayerId(members[0]?.id ?? "");
+    setSelectedMemberIds(members.map((m) => m.id));
+    setManualShares({});
+  }, [open, members]);
 
   if (!open) return null;
 
   return (
     <AnimatePresence>
       <motion.div
-        className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/40 backdrop-blur-sm"
+        className="fixed inset-0 z-40 flex items-center justify-center overflow-y-auto bg-slate-950/40 p-4 backdrop-blur-sm"
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
@@ -702,7 +761,7 @@ function NewExpenseModal({
         <motion.div
           role="dialog"
           aria-modal="true"
-          className="w-full max-w-xl rounded-2xl border border-slate-200/80 bg-white p-5 text-sm shadow-xl shadow-slate-900/10 dark:border-slate-800/80 dark:bg-slate-950"
+          className="max-h-[calc(100vh-2rem)] w-full max-w-xl overflow-y-auto rounded-2xl border border-slate-200/80 bg-white p-5 text-sm shadow-xl shadow-slate-900/10 dark:border-slate-800/80 dark:bg-slate-950"
           initial={{ opacity: 0, y: 12, scale: 0.98 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
           exit={{ opacity: 0, y: 8, scale: 0.98 }}
@@ -713,6 +772,7 @@ function NewExpenseModal({
             </h2>
             <button
               onClick={onClose}
+              disabled={saving}
               className="rounded-full px-2 py-1 text-xs text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-900"
             >
               Close
@@ -728,6 +788,7 @@ function NewExpenseModal({
                 <select
                   value={payerId}
                   onChange={(e) => setPayerId(e.target.value)}
+                  disabled={saving}
                   className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-900 outline-none ring-0 transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-50"
                 >
                   {members.map((m) => (
@@ -745,6 +806,7 @@ function NewExpenseModal({
                 <input
                   value={label}
                   onChange={(e) => setLabel(e.target.value)}
+                  disabled={saving}
                   placeholder="Dinner, taxi, hotel, groceries..."
                   className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-900 outline-none ring-0 transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-50"
                 />
@@ -753,6 +815,7 @@ function NewExpenseModal({
                   onChange={(e) =>
                     setCategory(e.target.value as Expense["category"])
                   }
+                  disabled={saving}
                   className="mt-2 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-900 outline-none ring-0 transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-50"
                 >
                   <option value="Food">🍔 Food</option>
@@ -772,6 +835,7 @@ function NewExpenseModal({
                   type="number"
                   value={totalAmount}
                   onChange={(e) => setTotalAmount(e.target.value)}
+                  disabled={saving}
                   placeholder="0.00"
                   className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-900 outline-none ring-0 transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-50"
                 />
@@ -788,6 +852,7 @@ function NewExpenseModal({
                     type="checkbox"
                     checked={autoDivide}
                     onChange={(e) => setAutoDivide(e.target.checked)}
+                    disabled={saving}
                     className="h-3.5 w-3.5 rounded border-slate-300 text-emerald-500 focus:ring-emerald-500 dark:border-slate-700"
                   />
                   Auto divide equally
@@ -807,6 +872,7 @@ function NewExpenseModal({
                           type="checkbox"
                           checked={checked}
                           onChange={() => toggleMember(m.id)}
+                          disabled={saving}
                           className="h-3.5 w-3.5 rounded border-slate-300 text-emerald-500 focus:ring-emerald-500 dark:border-slate-700"
                         />
                         <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-slate-200 text-[11px] font-medium text-slate-700 dark:bg-slate-700 dark:text-slate-100">
@@ -824,6 +890,7 @@ function NewExpenseModal({
                               [m.id]: e.target.value,
                             }))
                           }
+                          disabled={saving}
                           placeholder="0.00"
                           className="w-20 rounded border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-900 outline-none ring-0 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/40 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-50"
                         />
@@ -852,6 +919,7 @@ function NewExpenseModal({
             <button
               type="button"
               onClick={onClose}
+              disabled={saving}
               className="rounded-lg px-3 py-1.5 text-xs font-medium text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-900"
             >
               Cancel
@@ -859,10 +927,10 @@ function NewExpenseModal({
             <button
               type="button"
               onClick={handleCreate}
-              disabled={isManualMismatch || parsedTotal <= 0}
+              disabled={saving || isManualMismatch || parsedTotal <= 0}
               className="rounded-full bg-slate-900 px-4 py-1.5 text-xs font-semibold text-slate-50 shadow-sm shadow-slate-900/40 transition enabled:hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-slate-50 dark:text-slate-900 dark:shadow-slate-50/30"
             >
-              Add expense
+              {saving ? "Adding..." : "Add expense"}
             </button>
           </div>
         </motion.div>
@@ -977,22 +1045,22 @@ function ExpenseCard({
       initial={false}
       whileHover={{ y: -1 }}
     >
-      <motion.div layout className="flex items-start justify-between gap-2">
-        <div className="flex items-center gap-2">
+      <motion.div layout className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex min-w-0 items-center gap-2">
           <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-slate-900 text-xs font-semibold text-slate-50 dark:bg-slate-100 dark:text-slate-900">
             {payer ? initials(payer.name) : "?"}
           </span>
-          <div>
+          <div className="min-w-0">
             <p className="text-xs font-medium text-slate-900 dark:text-slate-50">
               {payer?.name ?? "Unknown"}
             </p>
-            <p className="text-[11px] text-slate-600 dark:text-slate-300">
+            <p className="break-words text-[11px] text-slate-600 dark:text-slate-300">
               {CATEGORY_ICON[expense.category]} {expense.category} ·{" "}
               {expense.label}
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-2 text-right text-[11px]">
+        <div className="flex items-center justify-between gap-2 text-[11px] sm:justify-end sm:text-right">
           <div>
             <p className="font-semibold text-emerald-500 dark:text-emerald-400">
               {formatAmount(expense.amount, currencyCode)}
@@ -1060,6 +1128,7 @@ function GroupDetail({
     null
   );
   const [memberHover, setMemberHover] = useState(false);
+  const [copiedInvite, setCopiedInvite] = useState(false);
 
   const totalGroupAmount = group.expenses.reduce(
     (sum, e) => sum + e.amount,
@@ -1068,7 +1137,7 @@ function GroupDetail({
 
   const netDebts = useMemo(
     () => computeNetDebtsFromExpenses(group),
-    [group.expenses]
+    [group]
   );
   const effectiveDebts = useMemo(
     () => applySettlements(netDebts, group.id, settledPayments),
@@ -1092,7 +1161,7 @@ function GroupDetail({
     totalAmount: number;
     shares: ExpenseShare[];
   }) => {
-    onAddExpense(group.id, {
+    return onAddExpense(group.id, {
       payerId: payload.payerId,
       label: payload.label,
       category: payload.category,
@@ -1118,7 +1187,7 @@ function GroupDetail({
             </p>
           )}
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <div
             className="relative flex -space-x-2"
             onMouseEnter={() => setMemberHover(true)}
@@ -1164,6 +1233,20 @@ function GroupDetail({
           <div className="flex gap-2">
             <button
               type="button"
+              onClick={() => {
+                if (typeof window !== "undefined") {
+                  const link = `${window.location.origin}/groups?join=${group.id}`;
+                  void navigator.clipboard.writeText(link);
+                  setCopiedInvite(true);
+                  setTimeout(() => setCopiedInvite(false), 2000);
+                }
+              }}
+              className="rounded-full border border-emerald-500/40 bg-emerald-50 px-3 py-1.5 text-[11px] font-semibold text-emerald-700 hover:bg-emerald-100 dark:border-emerald-500/40 dark:bg-emerald-950/40 dark:text-emerald-300 dark:hover:bg-emerald-900/40"
+            >
+              {copiedInvite ? "✓ Link copied!" : "🔗 Invite member"}
+            </button>
+            <button
+              type="button"
               onClick={() => setNewExpenseOpen(true)}
               className="rounded-full bg-slate-900 px-3 py-1.5 text-[11px] font-semibold text-slate-50 shadow-sm shadow-slate-900/40 hover:bg-slate-800 dark:bg-slate-50 dark:text-slate-900 dark:shadow-slate-50/30"
             >
@@ -1174,13 +1257,15 @@ function GroupDetail({
               onClick={() => {
                 const youOwe = effectiveDebts.filter((e) => e.fromId === CURRENT_USER_ID);
                 if (youOwe.length > 0) {
-                  youOwe.forEach((e) =>
-                    onSettle({
+                  void Promise.all(
+                    youOwe.map((e) =>
+                      onSettle({
                       groupId: group.id,
                       fromId: e.fromId,
                       toId: e.toId,
                       amount: e.amount,
-                    })
+                      })
+                    )
                   );
                 }
               }}
@@ -1192,8 +1277,8 @@ function GroupDetail({
         </div>
       </div>
 
-      <div className="mt-4 border-b border-slate-100 text-[11px] dark:border-slate-800">
-        <nav className="-mb-px flex gap-4">
+      <div className="mt-4 overflow-x-auto border-b border-slate-100 text-[11px] dark:border-slate-800">
+        <nav className="-mb-px flex min-w-max gap-4">
           {[
             { id: "expenses", label: "Expenses" },
             { id: "balances", label: "Balances" },
@@ -1385,7 +1470,7 @@ function GroupCard({ group, selected, onSelect, onEdit, onDelete, balanceStatus,
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
       whileHover={{ y: -1 }}
-      className={`relative flex w-full items-center justify-between overflow-hidden rounded-xl px-3 py-2.5 text-left text-xs shadow-sm shadow-slate-900/5 transition-colors ${
+        className={`relative flex w-full flex-col gap-2 overflow-hidden rounded-xl px-3 py-2.5 text-left text-xs shadow-sm shadow-slate-900/5 transition-colors sm:flex-row sm:items-center sm:justify-between ${
         selected
           ? "bg-slate-900 text-slate-50 ring-1 ring-slate-900/70 dark:bg-slate-50 dark:text-slate-900"
           : "bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-900/80 dark:text-slate-200 dark:hover:bg-slate-900"
@@ -1394,7 +1479,7 @@ function GroupCard({ group, selected, onSelect, onEdit, onDelete, balanceStatus,
       <button
         type="button"
         onClick={onSelect}
-        className="flex min-w-0 flex-1 items-center justify-between text-left"
+        className="flex min-w-0 flex-1 flex-col gap-2 text-left sm:flex-row sm:items-center sm:justify-between"
       >
         <div>
           <p
@@ -1473,7 +1558,7 @@ type SettlementSuggestionsPanelProps = {
   groups: Group[];
   settledPayments: SettledPayment[];
   currencyCode: string;
-  onSettle: (payment: SettledPayment) => void;
+  onSettle: (payment: SettledPayment) => Promise<boolean>;
 };
 
 function SettlementSuggestionsPanel({
@@ -1610,7 +1695,7 @@ function SettlementSuggestionsPanel({
 
 type QuickAddExpenseCardProps = {
   groups: Group[];
-  onQuickAdd: (groupId: string, amount: number, description: string) => void;
+  onQuickAdd: (groupId: string, amount: number, description: string) => Promise<boolean>;
 };
 
 function QuickAddExpenseCard({
@@ -1621,14 +1706,22 @@ function QuickAddExpenseCard({
   const [groupId, setGroupId] = useState<string>("");
   const [description, setDescription] = useState("");
 
-  const handleSubmit = () => {
+  const [saving, setSaving] = useState(false);
+
+  const handleSubmit = async () => {
     const g = groups.find((x) => x.id === groupId);
     const num = Number(amount);
     if (!g || !Number.isFinite(num) || num <= 0) return;
-    const share = num / g.members.length;
-    onQuickAdd(groupId, num, description.trim() || "Quick expense");
-    setAmount("");
-    setDescription("");
+    setSaving(true);
+    try {
+      const saved = await onQuickAdd(groupId, num, description.trim() || "Quick expense");
+      if (saved) {
+        setAmount("");
+        setDescription("");
+      }
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -1642,11 +1735,13 @@ function QuickAddExpenseCard({
           type="number"
           value={amount}
           onChange={(e) => setAmount(e.target.value)}
+          disabled={saving}
           className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-900 outline-none ring-0 transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-50"
         />
         <select
           value={groupId}
           onChange={(e) => setGroupId(e.target.value)}
+          disabled={saving}
           className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-900 outline-none ring-0 transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-50"
         >
           <option value="">Choose group</option>
@@ -1660,15 +1755,16 @@ function QuickAddExpenseCard({
           placeholder="Description"
           value={description}
           onChange={(e) => setDescription(e.target.value)}
+          disabled={saving}
           className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-900 outline-none ring-0 transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-50"
         />
         <button
           type="button"
           onClick={handleSubmit}
-          disabled={!groupId || !amount}
+          disabled={saving || !groupId || !amount}
           className="rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-slate-50 shadow-sm shadow-slate-900/40 hover:bg-slate-800 disabled:opacity-50 dark:bg-slate-50 dark:text-slate-900 dark:shadow-slate-50/30"
         >
-          Add to group
+          {saving ? "Adding..." : "Add to group"}
         </button>
       </div>
       <p className="mt-2 text-[11px] text-slate-500 dark:text-slate-400">
@@ -1688,55 +1784,147 @@ export default function GroupsPage() {
   const [settledPayments, setSettledPayments] = useState<SettledPayment[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [savingAction, setSavingAction] = useState<string | null>(null);
 
   const selectedGroup = groups.find((g) => g.id === selectedGroupId) ?? null;
+
+  const loadGroups = useCallback(async () => {
+    setLoading(true);
+    setLoadError(null);
+
+    const {
+      data: { user },
+      error: userError,
+    } = await supabase.auth.getUser();
+
+    if (userError) throw userError;
+
+    if (!user) {
+      setGroups([]);
+      setSettledPayments([]);
+      setSelectedGroupId(null);
+      setLoading(false);
+      return;
+    }
+
+    try {
+      const { groups: rows, settlements } = await fetchGroupsForUser(user.id);
+      const nextGroups = rows.map((r) =>
+        dbGroupToGroup(
+          {
+            ...r,
+            expenses: r.expenses ?? [],
+          },
+          currencyCode
+        )
+      );
+
+      setGroups(nextGroups);
+      setSettledPayments(
+        settlements.map((settlement) => ({
+          id: settlement.id,
+          groupId: settlement.group_id,
+          fromId: settlement.from_id,
+          toId: settlement.to_id,
+          amount: Number(settlement.amount),
+        }))
+      );
+      setSelectedGroupId((current) => {
+        if (current && nextGroups.some((group) => group.id === current)) {
+          return current;
+        }
+        return nextGroups[0]?.id ?? null;
+      });
+    } catch (err) {
+      setLoadError(err instanceof Error ? err.message : "Failed to load groups");
+    } finally {
+      setLoading(false);
+    }
+  }, [currencyCode]);
 
   useEffect(() => {
     let mounted = true;
     const load = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!mounted || !user) {
-        if (mounted) {
-          setLoading(false);
-          setGroups([]);
-        }
-        return;
-      }
       try {
-        const { groups: rows } = await fetchGroupsForUser(user.id);
-        if (!mounted) return;
-        setGroups(
-          rows.map((r) =>
-            dbGroupToGroup(
-              {
-                ...r,
-                expenses: r.expenses ?? [],
-              },
-              currencyCode
-            )
-          )
-        );
-        if (rows.length > 0 && !selectedGroupId) {
-          setSelectedGroupId(rows[0].id);
-        }
+        await loadGroups();
       } catch (err) {
-        if (mounted) setLoadError(err instanceof Error ? err.message : "Failed to load groups");
-      } finally {
-        if (mounted) setLoading(false);
+        if (mounted) {
+          setLoadError(err instanceof Error ? err.message : "Failed to load groups");
+          setLoading(false);
+        }
       }
     };
     void load();
+
+    const onGroupJoined = (event: Event) => {
+      const customEv = event as CustomEvent<{ groupId: string }>;
+      void loadGroups().then(() => {
+        if (customEv.detail?.groupId) {
+          setSelectedGroupId(customEv.detail.groupId);
+        }
+      });
+    };
+    window.addEventListener("moneymap:group-joined", onGroupJoined);
+
     return () => {
       mounted = false;
+      window.removeEventListener("moneymap:group-joined", onGroupJoined);
     };
-  }, [currencyCode]);
+  }, [loadGroups]);
 
-  const handleCreateGroup = useCallback(
-    async (payload: { name: string; description: string; members: string[] }) => {
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const joinId = params.get("join");
+    if (!joinId) return;
+
+    let cancelled = false;
+    const handleJoin = async () => {
       try {
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) return;
-  
+        const memberName = user.user_metadata?.full_name || user.email?.split("@")[0] || "Member";
+        const joined = await dbJoinGroup(joinId, { id: user.id, name: memberName });
+        if (joined && !cancelled) {
+          await loadGroups();
+          setSelectedGroupId(joinId);
+          const newUrl = window.location.pathname;
+          window.history.replaceState({}, "", newUrl);
+        }
+      } catch (err) {
+        console.error("Failed to join group via link:", err);
+      }
+    };
+    void handleJoin();
+    return () => {
+      cancelled = true;
+    };
+  }, [loadGroups]);
+
+  const runGroupAction = useCallback(
+    async <T = boolean,>(label: string, action: () => Promise<T>): Promise<T> => {
+      setActionError(null);
+      setSavingAction(label);
+      try {
+        const res = await action();
+        return (res === undefined ? true : res) as T;
+      } catch (err) {
+        setActionError(err instanceof Error ? err.message : "Unable to save group changes");
+        return false as unknown as T;
+      } finally {
+        setSavingAction(null);
+      }
+    },
+    []
+  );
+
+  const handleCreateGroup = useCallback(
+    async (payload: { name: string; description: string; members: string[] }) => {
+      return runGroupAction<string | boolean>("create-group", async () => {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) throw new Error("You must be signed in to create groups.");
+
         const members: Member[] = [
           { id: CURRENT_USER_ID, name: "You" },
           ...payload.members.map((m, idx) => ({
@@ -1744,106 +1932,148 @@ export default function GroupsPage() {
             name: m,
           })),
         ];
-  
+
         const created = await dbCreateGroup(user.id, {
           name: payload.name,
           description: payload.description,
           members,
         });
-  
+
         if (!created) {
           throw new Error("Group creation failed");
         }
-  
+
+        // Send notifications to invited emails
+        const inviterName = user.user_metadata?.full_name || user.email?.split("@")[0] || "A user";
+        void createGroupInvitations(created.id, payload.name, { id: user.id, email: user.email, name: inviterName }, payload.members);
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(new CustomEvent("moneymap:invites-updated"));
+        }
+
         const newGroup = dbGroupToGroup(
           { ...created, expenses: [] },
           currencyCode
         );
-  
+
         setGroups((prev) => [newGroup, ...prev]);
         setSelectedGroupId(newGroup.id);
-  
-      } catch (err) {
-        console.error("Create group error:", err);
-        alert((err as Error)?.message || "Failed to create group");
-      }
+        return newGroup.id;
+      });
     },
-    [currencyCode]
+    [currencyCode, runGroupAction]
   );
   
 
   const handleUpdateGroup = useCallback(
     async (groupId: string, payload: { name: string; description: string; members: Member[] }) => {
-      await dbUpdateGroup(groupId, payload);
-      setGroups((prev) =>
-        prev.map((g) =>
-          g.id === groupId
-            ? { ...g, name: payload.name, description: payload.description, members: payload.members }
-            : g
-        )
-      );
-      setEditGroup(null);
+      return runGroupAction<boolean>("update-group", async () => {
+        await dbUpdateGroup(groupId, payload);
+        setGroups((prev) =>
+          prev.map((g) =>
+            g.id === groupId
+              ? { ...g, name: payload.name, description: payload.description, members: payload.members }
+              : g
+          )
+        );
+        setEditGroup(null);
+        return true;
+      });
     },
-    []
+    [runGroupAction]
   );
 
   const handleDeleteGroup = useCallback(async (group: Group) => {
-    await dbDeleteGroup(group.id);
-    setGroups((prev) => prev.filter((g) => g.id !== group.id));
-    if (selectedGroupId === group.id) setSelectedGroupId(null);
-    setDeleteConfirmGroup(null);
-  }, [selectedGroupId]);
+    return runGroupAction<boolean>("delete-group", async () => {
+      await dbDeleteGroup(group.id, group.name);
+      setGroups((prev) => {
+        const next = prev.filter((g) => g.id !== group.id && g.name.toLowerCase() !== group.name.toLowerCase());
+        setSelectedGroupId((current) =>
+          current === group.id ? next[0]?.id ?? null : current
+        );
+        return next;
+      });
+      setSettledPayments((prev) => prev.filter((payment) => payment.groupId !== group.id));
+      setDeleteConfirmGroup(null);
+      return true;
+    });
+  }, [runGroupAction]);
 
   const handleAddExpense = useCallback(
-    async (groupId: string, payload: Omit<Expense, "id" | "createdAt">) => {
-      const created = await dbAddGroupExpense(groupId, {
-        payer_id: payload.payerId,
-        category: payload.category,
-        label: payload.label,
-        amount: payload.amount,
-        currency: payload.currency,
-        shares: payload.shares,
+    async (groupId: string, payload: Omit<Expense, "id" | "createdAt">): Promise<boolean> => {
+      const res = await runGroupAction<boolean>("add-expense", async () => {
+        const created = await dbAddGroupExpense(groupId, {
+          payer_id: payload.payerId,
+          category: payload.category,
+          label: payload.label,
+          amount: payload.amount,
+          currency: payload.currency,
+          shares: payload.shares,
+        });
+        const expense: Expense = {
+          id: created.id,
+          payerId: created.payer_id,
+          category: created.category as Expense["category"],
+          label: created.label,
+          amount: Number(created.amount),
+          currency: created.currency,
+          shares: created.shares ?? [],
+          createdAt: created.created_at,
+        };
+        setGroups((prev) =>
+          prev.map((g) =>
+            g.id === groupId ? { ...g, expenses: [expense, ...g.expenses] } : g
+          )
+        );
+        return true;
       });
-      const expense: Expense = {
-        id: created.id,
-        payerId: created.payer_id,
-        category: created.category as Expense["category"],
-        label: created.label,
-        amount: Number(created.amount),
-        currency: created.currency,
-        shares: created.shares ?? [],
-        createdAt: created.created_at,
-      };
-      setGroups((prev) =>
-        prev.map((g) =>
-          g.id === groupId ? { ...g, expenses: [...g.expenses, expense] } : g
-        )
-      );
+      return Boolean(res);
     },
-    []
+    [runGroupAction]
   );
 
-  const handleDeleteExpense = useCallback(async (groupId: string, expenseId: string) => {
-    await dbDeleteGroupExpense(groupId, expenseId);
-    setGroups((prev) =>
-      prev.map((g) =>
-        g.id === groupId
-          ? { ...g, expenses: g.expenses.filter((e) => e.id !== expenseId) }
-          : g
-      )
-    );
-  }, []);
+  const handleDeleteExpense = useCallback(async (groupId: string, expenseId: string): Promise<boolean> => {
+    const res = await runGroupAction<boolean>("delete-expense", async () => {
+      await dbDeleteGroupExpense(groupId, expenseId);
+      setGroups((prev) =>
+        prev.map((g) =>
+          g.id === groupId
+            ? { ...g, expenses: g.expenses.filter((e) => e.id !== expenseId) }
+            : g
+        )
+      );
+      return true;
+    });
+    return Boolean(res);
+  }, [runGroupAction]);
 
-  const handleSettle = useCallback((payment: SettledPayment) => {
-    setSettledPayments((prev) => [...prev, payment]);
-  }, []);
+  const handleSettle = useCallback(async (payment: SettledPayment): Promise<boolean> => {
+    const res = await runGroupAction<boolean>("settle-payment", async () => {
+      const created = await dbAddGroupSettlement(payment.groupId, {
+        from_id: payment.fromId,
+        to_id: payment.toId,
+        amount: payment.amount,
+      });
+      setSettledPayments((prev) => [
+        ...prev,
+        {
+          id: created.id,
+          groupId: created.group_id,
+          fromId: created.from_id,
+          toId: created.to_id,
+          amount: Number(created.amount),
+        },
+      ]);
+      return true;
+    });
+    return Boolean(res);
+  }, [runGroupAction]);
 
   const handleQuickAdd = useCallback(
-    (groupId: string, amount: number, description: string) => {
+    async (groupId: string, amount: number, description: string) => {
       const g = groups.find((x) => x.id === groupId);
-      if (!g || g.members.length === 0) return;
+      if (!g || g.members.length === 0) return false;
       const share = amount / g.members.length;
-      handleAddExpense(groupId, {
+      return handleAddExpense(groupId, {
         payerId: CURRENT_USER_ID,
         category: "Other",
         label: description,
@@ -1878,6 +2108,18 @@ export default function GroupsPage() {
           trips, households, and projects.
         </p>
       </div>
+
+      {(actionError || savingAction) && (
+        <div
+          className={`rounded-xl border px-4 py-3 text-xs ${
+            actionError
+              ? "border-red-200 bg-red-50 text-red-700 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300"
+              : "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/40 dark:text-emerald-300"
+          }`}
+        >
+          {actionError ?? "Saving group changes..."}
+        </div>
+      )}
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
         <div className="rounded-2xl border border-slate-200/80 bg-white p-4 transition-colors dark:border-slate-800/80 dark:bg-slate-950/80">
@@ -1961,7 +2203,7 @@ export default function GroupsPage() {
       {deleteConfirmGroup && (
         <AnimatePresence>
           <motion.div
-            className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/40 backdrop-blur-sm"
+            className="fixed inset-0 z-40 flex items-center justify-center overflow-y-auto bg-slate-950/40 p-4 backdrop-blur-sm"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
@@ -2003,5 +2245,3 @@ export default function GroupsPage() {
     </div>
   );
 }
-
-

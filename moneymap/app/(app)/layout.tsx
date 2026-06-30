@@ -5,6 +5,7 @@ import { supabase } from "@/lib/supabaseClient";
 import { useRouter } from "next/navigation";
 import Sidebar from "@/app/components/sidebar"; // adjust if needed
 import ThemeToggle from "@/app/components/theme-toggle";
+import NotificationsDropdown from "@/app/components/notifications-dropdown";
 
 export default function AppLayout({
   children,
@@ -15,38 +16,48 @@ export default function AppLayout({
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!session) {
+        router.replace("/auth");
+      }
+    });
+
     const checkUser = async () => {
       const { data } = await supabase.auth.getSession();
 
       if (!data.session) {
-        router.push("/auth");
+        router.replace("/auth");
       } else {
         setLoading(false);
       }
     };
 
     checkUser();
+
+    return () => {
+      subscription.unsubscribe();
+    };
   }, [router]);
 
   if (loading) {
-    return <div className="p-6">Checking authentication...</div>;
+    return <div className="p-6 text-sm text-slate-500 dark:text-slate-400">Checking authentication...</div>;
   }
 
   return (
-    <div className="flex min-h-screen">
-      {/* Sidebar */}
+    <div className="flex min-h-screen min-w-0 flex-col bg-slate-50 dark:bg-slate-950 lg:flex-row">
       <Sidebar />
 
-      {/* Main content */}
-      <div className="flex-1">
-        <div className="flex justify-end p-4">
+      <div className="min-w-0 flex-1">
+        <div className="flex justify-end items-center gap-3 px-4 py-3 sm:px-6">
+          <NotificationsDropdown />
           <ThemeToggle />
         </div>
 
-        <main className="p-6">{children}</main>
+        <main className="min-w-0 px-4 pb-8 sm:px-6 lg:px-8">{children}</main>
       </div>
     </div>
   );
 }
-
 

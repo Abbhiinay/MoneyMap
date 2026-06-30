@@ -64,19 +64,6 @@ export default function AnalyticsPage() {
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
   });
   const { currency, loading: currencyLoading } = useUserCurrency();
-  const [heatmapTooltip, setHeatmapTooltip] = useState<{
-    visible: boolean;
-    x: number;
-    y: number;
-    dateLabel: string;
-    amountLabel: string;
-  }>({
-    visible: false,
-    x: 0,
-    y: 0,
-    dateLabel: "",
-    amountLabel: "",
-  });
 
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [selectedTransactions, setSelectedTransactions] = useState<Expense[]>(
@@ -116,9 +103,6 @@ export default function AnalyticsPage() {
 
   const pad2 = (n: number) => String(n).padStart(2, "0");
 
-  const formatISODate = (d: Date) =>
-    `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
-
   const parseExpenseDate = (exp: Expense) => {
     const rawDate = exp.date ?? exp.created_at;
     if (!rawDate) return null;
@@ -131,13 +115,6 @@ export default function AnalyticsPage() {
     const [y, m] = yyyyMm.split("-").map(Number);
     const d = new Date(y, (m ?? 1) - 1, 1);
     return d.toLocaleString("default", { month: "long", year: "numeric" });
-  };
-
-  const spendingLevel = (amount: number) => {
-    if (!amount || amount <= 0) return 0; // ₹0
-    if (amount <= 200) return 1; // ₹1–₹200
-    if (amount < 500) return 2; // ₹201–₹499
-    return 3; // ₹500+
   };
 
   /**
@@ -373,70 +350,6 @@ export default function AnalyticsPage() {
     "#10B981",
     "#F97316",
   ];
-
-  // Heatmap: aggregate current month spending by day (GitHub-style grid)
-  const heatmap = useMemo(() => {
-    const now = new Date();
-    const year = now.getFullYear();
-    const monthIndex = now.getMonth();
-    const monthStart = new Date(year, monthIndex, 1);
-    const monthEnd = new Date(year, monthIndex + 1, 0);
-    const daysInMonth = monthEnd.getDate();
-    const startWeekday = monthStart.getDay(); // 0 (Sun) .. 6 (Sat)
-
-    const dailyTotals: Record<string, number> = {};
-    expenses.forEach((exp) => {
-      const d = parseExpenseDate(exp);
-      if (!d) return;
-      if (d.getFullYear() !== year || d.getMonth() !== monthIndex) return;
-      const iso = formatISODate(d);
-      dailyTotals[iso] = (dailyTotals[iso] ?? 0) + Number(exp.amount);
-    });
-
-    const cells: Array<
-      | { kind: "blank"; key: string }
-      | {
-          kind: "day";
-          key: string;
-          iso: string;
-          date: Date;
-          total: number;
-          level: number;
-        }
-    > = [];
-
-    for (let i = 0; i < startWeekday; i++) {
-      cells.push({ kind: "blank", key: `blank-${i}` });
-    }
-
-    for (let day = 1; day <= daysInMonth; day++) {
-      const date = new Date(year, monthIndex, day);
-      const iso = formatISODate(date);
-      const total = dailyTotals[iso] ?? 0;
-      cells.push({
-        kind: "day",
-        key: iso,
-        iso,
-        date,
-        total,
-        level: spendingLevel(total),
-      });
-    }
-
-    const monthTitle = now.toLocaleString("default", {
-      month: "long",
-      year: "numeric",
-    });
-
-    const monthTotal = Object.values(dailyTotals).reduce((a, b) => a + b, 0);
-
-    return {
-      monthTitle,
-      daysInMonth,
-      monthTotal,
-      cells,
-    };
-  }, [expenses]);
 
   // Derived insights
   const totalOverall = expenses.reduce(
@@ -789,132 +702,8 @@ export default function AnalyticsPage() {
             </div>
           </div>
 
-          {/* Daily heatmap (current month) */}
-          <div className="rounded-2xl border border-slate-200/80 bg-white p-4 transition-colors dark:border-slate-800/80 dark:bg-slate-950/80">
-            <div className="flex flex-wrap items-baseline justify-between gap-3">
-              <div>
-                <p className="text-xs font-medium text-slate-600 dark:text-slate-300">
-                  Daily Spending Heatmap
-                </p>
-                <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
-                  {heatmap.monthTitle} • {heatmap.daysInMonth} days •{" "}
-                  {formatCurrency(heatmap.monthTotal)} spent
-                </p>
-              </div>
-
-              <div className="flex items-center gap-2 text-[11px] text-slate-500 dark:text-slate-400">
-                <span>Less</span>
-                <span className="h-3 w-3 rounded-[3px] border border-slate-900/5 bg-slate-200 dark:border-slate-700/40 dark:bg-slate-800" />
-                <span className="h-3 w-3 rounded-[3px] border border-slate-900/5 bg-emerald-200 dark:border-slate-700/40 dark:bg-emerald-900/40" />
-                <span className="h-3 w-3 rounded-[3px] border border-slate-900/5 bg-emerald-400 dark:border-slate-700/40 dark:bg-emerald-600/70" />
-                <span className="h-3 w-3 rounded-[3px] border border-slate-900/5 bg-emerald-600 dark:border-slate-700/40 dark:bg-emerald-500" />
-                <span>More</span>
-              </div>
-            </div>
-
-            <div className="mt-4 grid grid-cols-[42px_1fr] gap-3">
-              <div className="grid grid-rows-7 gap-1 pt-[2px] text-[10px] text-slate-500 dark:text-slate-400">
-                <div className="row-start-2 leading-3">Mon</div>
-                <div className="row-start-4 leading-3">Wed</div>
-                <div className="row-start-6 leading-3">Fri</div>
-              </div>
-
-              <div className="overflow-x-auto pb-2">
-                <div className="grid w-max grid-flow-col auto-cols-[12px] grid-rows-7 gap-1">
-                  {heatmap.cells.map((cell) => {
-                    if (cell.kind === "blank") {
-                      return (
-                        <div
-                          key={cell.key}
-                          className="h-3 w-3 invisible"
-                          aria-hidden="true"
-                        />
-                      );
-                    }
-
-                    const bg =
-                      cell.level === 0
-                        ? "bg-slate-200 dark:bg-slate-800"
-                        : cell.level === 1
-                          ? "bg-emerald-200 dark:bg-emerald-900/40"
-                          : cell.level === 2
-                            ? "bg-emerald-400 dark:bg-emerald-600/70"
-                            : "bg-emerald-600 dark:bg-emerald-500";
-
-                    return (
-                      <div
-                        key={cell.key}
-                        role="button"
-                        tabIndex={0}
-                        aria-label={`${cell.iso}: ${formatCurrency(
-                          cell.total
-                        )} spent`}
-                        className={[
-                          "h-3 w-3 rounded-[3px] border border-slate-900/5 dark:border-slate-700/40",
-                          bg,
-                          "outline-none hover:outline hover:outline-2 hover:outline-indigo-500/50 hover:outline-offset-1",
-                        ].join(" ")}
-                        onMouseEnter={(e) => {
-                          const dateLabel = cell.date.toLocaleString("default", {
-                            month: "short",
-                            day: "numeric",
-                          });
-                          const amountLabel = `${formatCurrency(
-                            cell.total
-                          )} spent`;
-                          setHeatmapTooltip({
-                            visible: true,
-                            x: e.clientX,
-                            y: e.clientY,
-                            dateLabel,
-                            amountLabel,
-                          });
-                        }}
-                        onMouseMove={(e) => {
-                          setHeatmapTooltip((t) =>
-                            t.visible
-                              ? { ...t, x: e.clientX, y: e.clientY }
-                              : t
-                          );
-                        }}
-                        onMouseLeave={() => {
-                          setHeatmapTooltip((t) => ({ ...t, visible: false }));
-                        }}
-                      />
-                    );
-                  })}
-                </div>
-              </div>
-            </div>
-
-            {/* Tooltip (fixed) */}
-            <div
-              aria-hidden={!heatmapTooltip.visible}
-              className={[
-                "pointer-events-none fixed z-50 min-w-[140px] max-w-[220px] rounded-xl border border-slate-800/70 bg-slate-950/95 px-3 py-2 text-slate-100 shadow-2xl transition-opacity",
-                heatmapTooltip.visible ? "opacity-100" : "opacity-0",
-              ].join(" ")}
-              style={{
-                left: Math.min(
-                  window.innerWidth - 240,
-                  heatmapTooltip.x + 12
-                ),
-                top: Math.min(
-                  window.innerHeight - 80,
-                  heatmapTooltip.y + 12
-                ),
-              }}
-            >
-              <div className="text-xs font-semibold">
-                {heatmapTooltip.dateLabel}
-              </div>
-              <div className="text-xs text-slate-200">
-                {heatmapTooltip.amountLabel}
-              </div>
-            </div>
-          </div>
         </div>
-
+          
         {/* Insights & alerts */}
         <div className="space-y-4">
           <div className="rounded-2xl border border-slate-200/80 bg-white p-4 transition-colors dark:border-slate-800/80 dark:bg-slate-950/80">

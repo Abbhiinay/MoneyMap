@@ -140,8 +140,8 @@ export default function Sidebar() {
   };
 
   return (
-    <aside className="flex h-full w-64 flex-col border-r border-slate-200/80 bg-slate-50/95 px-4 py-5 transition-colors dark:border-slate-800/80 dark:bg-slate-950/90">
-      <div className="flex items-center gap-2 px-2">
+    <aside className="sticky top-0 z-30 flex w-full flex-col border-b border-slate-200/80 bg-slate-50/95 px-4 py-3 transition-colors dark:border-slate-800/80 dark:bg-slate-950/90 lg:min-h-screen lg:w-64 lg:border-b-0 lg:border-r lg:py-5">
+      <div className="flex items-center gap-2 px-1 lg:px-2">
         <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-500/10 ring-1 ring-emerald-500/60">
           <span className="text-sm font-semibold text-emerald-500">MM</span>
         </div>
@@ -150,7 +150,7 @@ export default function Sidebar() {
         </span>
       </div>
 
-      <nav className="mt-8 flex flex-1 flex-col gap-1 text-sm">
+      <nav className="mt-4 flex gap-2 overflow-x-auto pb-1 text-sm lg:mt-8 lg:flex-1 lg:flex-col lg:overflow-visible lg:pb-0">
         {navItems.map((item) => {
           const isActive =
             item.href === "/"
@@ -161,7 +161,7 @@ export default function Sidebar() {
             <Link
               key={item.href}
               href={item.href}
-              className={`flex items-center justify-between rounded-xl px-3 py-2.5 text-sm font-medium transition ${
+              className={`flex shrink-0 items-center justify-between rounded-xl px-3 py-2.5 text-sm font-medium transition lg:shrink ${
                 isActive
                   ? "bg-emerald-500/15 text-emerald-600 ring-1 ring-emerald-500/60 dark:text-emerald-300"
                   : "text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-900 dark:hover:text-slate-50"
@@ -173,7 +173,7 @@ export default function Sidebar() {
         })}
       </nav>
 
-      <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-xs text-slate-500 transition-colors dark:border-slate-800 dark:bg-slate-950/90 dark:text-slate-400">
+      <div className="mt-4 hidden rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-xs text-slate-500 transition-colors dark:border-slate-800 dark:bg-slate-950/90 dark:text-slate-400 md:block">
         <div className="flex items-center justify-between gap-2">
           <p className="font-medium text-slate-800 dark:text-slate-200">
             Today&apos;s snapshot
@@ -238,4 +238,3 @@ export default function Sidebar() {
     </aside>
   );
 }
-

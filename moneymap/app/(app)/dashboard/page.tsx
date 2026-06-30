@@ -224,7 +224,7 @@ export default function DashboardPage() {
     Add Expense
   </p>
 
-  <div className="grid gap-3 sm:grid-cols-5 items-center">
+  <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5 xl:items-center">
 
     <input
       type="number"
@@ -297,8 +297,8 @@ export default function DashboardPage() {
     Spending by category
   </p>
 
-  <div className="mt-4 flex flex-col gap-4 sm:flex-row sm:items-center">
-    <div className="h-64 w-full sm:w-2/5">
+  <div className="mt-4 flex flex-col gap-4 xl:flex-row xl:items-center">
+    <div className="h-72 w-full min-w-0 xl:h-64">
       {categoryData.length === 0 ? (
         <p className="text-sm text-slate-500 dark:text-slate-400">
           No expense data yet.
@@ -397,7 +397,7 @@ export default function DashboardPage() {
             {detected.map((tx) => (
               <div
                 key={tx.id}
-                className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2 dark:bg-slate-900/80"
+                className="flex flex-col gap-3 rounded-lg bg-slate-50 px-3 py-2 dark:bg-slate-900/80 sm:flex-row sm:items-center sm:justify-between"
               >
                 <div className="min-w-0 flex-1">
                   <p className="font-medium text-slate-800 dark:text-slate-100">
@@ -408,7 +408,7 @@ export default function DashboardPage() {
                     {tx.date}
                   </p>
                 </div>
-                <div className="ml-3 flex shrink-0 gap-2">
+                <div className="flex shrink-0 flex-wrap gap-2 sm:ml-3 sm:justify-end">
                   <button
                     type="button"
                     onClick={() => {
@@ -560,7 +560,7 @@ export default function DashboardPage() {
               </div>
             </div>
 
-            <div className="mt-4 flex justify-between gap-2 text-xs">
+            <div className="mt-4 flex flex-col justify-between gap-2 text-xs sm:flex-row">
               <button
                 type="button"
                 onClick={() => setReviewingDetected(null)}
@@ -568,7 +568,7 @@ export default function DashboardPage() {
               >
                 Cancel
               </button>
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2 sm:justify-end">
                 <button
                   type="button"
                   onClick={async () => {

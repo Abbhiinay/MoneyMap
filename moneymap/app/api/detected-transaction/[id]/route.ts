@@ -6,7 +6,7 @@ const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 
 export async function DELETE(
   request: NextRequest,
-  context: { params: { id: string } }
+  context: { params: Promise<{ id: string }> }
 ) {
   const supabase = createClient(supabaseUrl, supabaseAnonKey);
   const {
@@ -17,7 +17,7 @@ export async function DELETE(
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const id = context.params.id;
+  const { id } = await context.params;
 
   if (!id) {
     return NextResponse.json({ error: "Missing id" }, { status: 400 });
@@ -38,4 +38,3 @@ export async function DELETE(
 
   return NextResponse.json({ success: true });
 }
-
