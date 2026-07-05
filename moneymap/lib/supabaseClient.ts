@@ -10,3 +10,11 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
     persistSession: true,
   },
 });
+
+// Attach this to any fetch() call that hits our own API routes so the
+// server can identify the logged-in Supabase user (see lib/supabaseServer.ts).
+export async function getSupabaseAuthHeaders(): Promise<Record<string, string>> {
+  const { data } = await supabase.auth.getSession();
+  const token = data.session?.access_token;
+  return token ? { "x-supabase-token": token } : {};
+}

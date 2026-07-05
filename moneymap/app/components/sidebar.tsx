@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
+import { getSupabaseAuthHeaders } from "@/lib/supabaseClient";
 
 const navItems = [
   { label: "Dashboard", href: "/dashboard" },
@@ -31,7 +32,8 @@ export default function Sidebar() {
     const fetchDetected = async () => {
       setLoadingDetected(true);
       try {
-        const res = await fetch("/api/gmail/today-transactions");
+        const headers = await getSupabaseAuthHeaders();
+        const res = await fetch("/api/gmail/today-transactions", { headers });
         if (!res.ok) return;
         const json = await res.json();
         const items: DetectedTransaction[] = json.detected ?? [];
@@ -95,6 +97,12 @@ export default function Sidebar() {
         return;
       }
 
+      const supabaseAuthHeaders = await getSupabaseAuthHeaders();
+      if (!supabaseAuthHeaders["x-supabase-token"]) {
+        setSyncError("You need to be signed in to MoneyMap to sync Gmail.");
+        return;
+      }
+
       await new Promise<void>((resolve, reject) => {
         const client = google.accounts.oauth2.initTokenClient({
           client_id: clientId,
@@ -108,13 +116,20 @@ export default function Sidebar() {
             try {
               const res = await fetch("/api/gmail/today-transactions", {
                 headers: {
+                  ...supabaseAuthHeaders,
                   Authorization: `Bearer ${tokenResponse.access_token}`,
                 },
               });
               if (!res.ok) {
-                const text = await res.text();
-                setSyncError("Failed to sync Gmail transactions.");
-                reject(new Error(text));
+                const json = await res.json().catch(() => null);
+                if (res.status === 401 && json?.error === "gmail_token_expired") {
+                  setSyncError("Your Gmail session expired. Please try connecting again.");
+                } else if (res.status === 401) {
+                  setSyncError("Your MoneyMap session expired. Please sign in again.");
+                } else {
+                  setSyncError("Failed to sync Gmail transactions.");
+                }
+                reject(new Error(json?.error ?? "sync_failed"));
                 return;
               }
               const json = await res.json();

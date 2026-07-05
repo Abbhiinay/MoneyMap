@@ -151,7 +151,7 @@ export async function acceptGroupInvitation(
 
   // 1. Join group
   const memberName = user.name || user.email.split("@")[0] || "Member";
-  await joinGroup(invite.group_id, { id: user.id, name: memberName });
+  await joinGroup(invite.group_id, { id: user.id, name: memberName }, user.email);
 
   // 2. Update invitation status to accepted
   try {

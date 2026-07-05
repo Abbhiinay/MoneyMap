@@ -20,6 +20,13 @@ export default function AppLayout({
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
       if (!session) {
+        if (typeof window !== "undefined") {
+          const params = new URLSearchParams(window.location.search);
+          const joinId = params.get("join");
+          if (joinId) {
+            sessionStorage.setItem("moneymap_join_group_id", joinId);
+          }
+        }
         router.replace("/auth");
       }
     });
@@ -28,9 +35,23 @@ export default function AppLayout({
       const { data } = await supabase.auth.getSession();
 
       if (!data.session) {
+        if (typeof window !== "undefined") {
+          const params = new URLSearchParams(window.location.search);
+          const joinId = params.get("join");
+          if (joinId) {
+            sessionStorage.setItem("moneymap_join_group_id", joinId);
+          }
+        }
         router.replace("/auth");
       } else {
         setLoading(false);
+        if (typeof window !== "undefined") {
+          const storedJoinId = sessionStorage.getItem("moneymap_join_group_id");
+          if (storedJoinId) {
+            sessionStorage.removeItem("moneymap_join_group_id");
+            router.replace(`/groups?join=${storedJoinId}`);
+          }
+        }
       }
     };
 

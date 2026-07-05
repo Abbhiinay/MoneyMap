@@ -161,28 +161,38 @@ export async function updateGroup(
   if (error) throw error;
 }
 
-export async function deleteGroup(groupId: string, groupName?: string): Promise<void> {
-  try {
-    await supabase.from("group_expenses").delete().eq("group_id", groupId);
-    await supabase.from("group_settlements").delete().eq("group_id", groupId);
-  } catch {
-    // ignore
-  }
+export async function deleteGroup(groupId: string): Promise<void> {
+  const {
+    data: { user },
+    error: userError,
+  } = await supabase.auth.getUser();
+  if (userError) throw userError;
+  if (!user) throw new Error("You must be signed in to delete a group.");
 
-  const { error } = await supabase.from("groups").delete().eq("id", groupId);
+  const { error: expensesError } = await supabase
+    .from("group_expenses")
+    .delete()
+    .eq("group_id", groupId);
+  if (expensesError) throw expensesError;
+
+  const { error: settlementsError } = await supabase
+    .from("group_settlements")
+    .delete()
+    .eq("group_id", groupId);
+  if (settlementsError) throw settlementsError;
+
+  const { error: invitationsError } = await supabase
+    .from("group_invitations")
+    .delete()
+    .eq("group_id", groupId);
+  if (invitationsError) throw invitationsError;
+
+  const { error } = await supabase
+    .from("groups")
+    .delete()
+    .eq("id", groupId);
+
   if (error) throw error;
-
-  // Delete duplicate rows with exact same group name to clean DB completely
-  if (groupName) {
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user) {
-        await supabase.from("groups").delete().eq("user_id", user.id).ilike("name", groupName.trim());
-      }
-    } catch {
-      // ignore
-    }
-  }
 }
 
 export async function addGroupExpense(
@@ -260,23 +270,87 @@ export async function fetchGroupById(groupId: string): Promise<DbGroup | null> {
   return data as DbGroup;
 }
 
-export async function joinGroup(groupId: string, newMember: DbMember): Promise<DbGroup | null> {
+export async function joinGroup(
+  groupId: string,
+  newMember: DbMember,
+  userEmail?: string
+): Promise<DbGroup | null> {
   const group = await fetchGroupById(groupId);
   if (!group) return null;
   
-  const members = group.members ?? [];
-  const exists = members.some(m => m.id === newMember.id || m.name.toLowerCase() === newMember.name.toLowerCase());
-  if (!exists) {
-    const updatedMembers = [...members, newMember];
-    const { data, error } = await supabase
-      .from("groups")
-      .update({ members: updatedMembers })
-      .eq("id", groupId)
-      .select("id, user_id, name, description, members, created_at")
-      .single();
-    if (error) throw error;
-    return data as DbGroup;
+  const members = [...(group.members ?? [])];
+  const cleanEmail = userEmail?.trim().toLowerCase();
+  const cleanName = newMember.name.trim().toLowerCase();
+  
+  let index = members.findIndex(m => m.id === newMember.id);
+  
+  if (index === -1 && cleanEmail) {
+    index = members.findIndex(
+      m => m.name.trim().toLowerCase() === cleanEmail || m.id.toLowerCase().includes(cleanEmail)
+    );
   }
-  return group;
+  
+  if (index === -1) {
+    index = members.findIndex(
+      m => m.name.trim().toLowerCase() === cleanName || m.id.toLowerCase().includes(cleanName)
+    );
+  }
+  
+  if (index !== -1) {
+    members[index] = { id: newMember.id, name: newMember.name };
+  } else {
+    members.push(newMember);
+  }
+
+  const { data, error } = await supabase
+    .from("groups")
+    .update({ members })
+    .eq("id", groupId)
+    .select("id, user_id, name, description, members, created_at")
+    .single();
+
+  if (error) throw error;
+
+  // Auto-accept any pending invitations for this user email for this group
+  if (cleanEmail) {
+    try {
+      await supabase
+        .from("group_invitations")
+        .update({ status: "accepted" })
+        .eq("group_id", groupId)
+        .ilike("invited_email", cleanEmail)
+        .eq("status", "pending");
+    } catch (e) {
+      console.warn("Failed to auto-accept group invitation:", e);
+    }
+  }
+
+  return data as DbGroup;
+}
+
+export async function updateGroupExpense(
+  groupId: string,
+  expenseId: string,
+  payload: {
+    payer_id: string;
+    category: string;
+    label: string;
+    amount: number;
+    shares: DbExpenseShare[];
+  }
+): Promise<void> {
+  const { error } = await supabase
+    .from("group_expenses")
+    .update({
+      payer_id: payload.payer_id,
+      category: payload.category,
+      label: payload.label,
+      amount: payload.amount,
+      shares: payload.shares,
+    })
+    .eq("id", expenseId)
+    .eq("group_id", groupId);
+
+  if (error) throw error;
 }
 

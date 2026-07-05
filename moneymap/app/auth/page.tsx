@@ -42,7 +42,10 @@ const DEFAULT_CURRENCY = "USD";
 async function ensureProfile(userId: string) {
   const { error } = await supabase
     .from("profiles")
-    .upsert({ id: userId, currency: DEFAULT_CURRENCY }, { onConflict: "id" });
+    .upsert(
+      { id: userId, currency: DEFAULT_CURRENCY },
+      { onConflict: "id", ignoreDuplicates: true }
+    );
 
   if (error) throw error;
 }

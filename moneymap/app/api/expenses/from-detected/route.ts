@@ -1,17 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
-
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+import { requireUser } from "@/lib/supabaseServer";
 
 export async function POST(request: NextRequest) {
-  const supabase = createClient(supabaseUrl, supabaseAnonKey);
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { supabase, user, error: authError } = await requireUser(request);
 
   if (!user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    return NextResponse.json({ error: authError ?? "Unauthorized" }, { status: 401 });
   }
 
   const body = (await request.json()) as {
@@ -21,10 +15,7 @@ export async function POST(request: NextRequest) {
   };
 
   if (!body.detectedId) {
-    return NextResponse.json(
-      { error: "Missing detectedId" },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: "Missing detectedId" }, { status: 400 });
   }
 
   const { data: detectedRows, error: detectedError } = await supabase
@@ -36,17 +27,11 @@ export async function POST(request: NextRequest) {
     .maybeSingle();
 
   if (detectedError) {
-    return NextResponse.json(
-      { error: detectedError.message },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: detectedError.message }, { status: 500 });
   }
 
   if (!detectedRows) {
-    return NextResponse.json(
-      { error: "Detected transaction not found" },
-      { status: 404 }
-    );
+    return NextResponse.json({ error: "Detected transaction not found" }, { status: 404 });
   }
 
   const detected: any = detectedRows;
@@ -61,9 +46,7 @@ export async function POST(request: NextRequest) {
       ? body.description
       : detected.merchant ?? "Gmail transaction";
 
-  const date =
-    detected.date ??
-    new Date().toISOString().slice(0, 10);
+  const date = detected.date ?? new Date().toISOString().slice(0, 10);
 
   const insertPayload = {
     user_id: user.id,
@@ -81,10 +64,7 @@ export async function POST(request: NextRequest) {
     .maybeSingle();
 
   if (insertError) {
-    return NextResponse.json(
-      { error: insertError.message },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: insertError.message }, { status: 500 });
   }
 
   await supabase

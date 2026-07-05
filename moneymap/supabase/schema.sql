@@ -96,3 +96,28 @@ create index if not exists idx_groups_user_id on public.groups(user_id);
 create index if not exists idx_group_expenses_group_id on public.group_expenses(group_id);
 create index if not exists idx_group_settlements_group_id on public.group_settlements(group_id);
 create index if not exists idx_group_invitations_email on public.group_invitations(invited_email);
+
+create table if not exists public.detected_transactions (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  amount numeric not null,
+  merchant text not null,
+  predicted_category text,
+  email_id text not null,
+  source text not null default 'gmail',
+  status text not null default 'detected',
+  date date not null,
+  created_at timestamptz not null default now(),
+  unique (user_id, email_id)
+);
+
+alter table public.detected_transactions enable row level security;
+
+drop policy if exists "Users manage own detected transactions" on public.detected_transactions;
+create policy "Users manage own detected transactions"
+  on public.detected_transactions for all
+  using (auth.uid() = user_id)
+  with check (auth.uid() = user_id);
+
+create index if not exists idx_detected_transactions_user_id on public.detected_transactions(user_id);
+create index if not exists idx_detected_transactions_email_id on public.detected_transactions(email_id);

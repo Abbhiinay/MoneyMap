@@ -39,7 +39,10 @@ function AuthCallbackContent() {
 
         const { error: profileError } = await supabase
           .from("profiles")
-          .upsert({ id: user.id, currency: DEFAULT_CURRENCY }, { onConflict: "id" });
+          .upsert(
+            { id: user.id, currency: DEFAULT_CURRENCY },
+            { onConflict: "id", ignoreDuplicates: true }
+          );
 
         if (profileError) throw profileError;
         if (mounted) router.replace("/dashboard");

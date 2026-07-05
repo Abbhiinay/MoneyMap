@@ -12,6 +12,7 @@ import {
   deleteGroupExpense as dbDeleteGroupExpense,
   addGroupSettlement as dbAddGroupSettlement,
   joinGroup as dbJoinGroup,
+  updateGroupExpense as dbUpdateGroupExpense,
 } from "@/lib/groupsDb";
 import { createGroupInvitations } from "@/lib/invitationsDb";
 import { supabase } from "@/lib/supabaseClient";
@@ -47,6 +48,7 @@ type Expense = {
 
 type Group = {
   id: string;
+  userId: string;
   name: string;
   description?: string;
   members: Member[];
@@ -83,6 +85,7 @@ function initials(name: string) {
 function dbGroupToGroup(
   row: {
     id: string;
+    user_id: string;
     name: string;
     description: string | null;
     members: Member[];
@@ -111,6 +114,7 @@ function dbGroupToGroup(
   }));
   return {
     id: row.id,
+    userId: row.user_id,
     name: row.name,
     description: row.description ?? undefined,
     members: row.members ?? [],
@@ -163,6 +167,7 @@ type ExpenseCardProps = {
   expanded: boolean;
   onToggle: () => void;
   onDelete?: () => void;
+  onEdit?: () => void;
   currencyCode: string;
 };
 
@@ -171,8 +176,10 @@ type GroupDetailProps = {
   currencyCode: string;
   settledPayments: SettledPayment[];
   onDeleteExpense: (groupId: string, expenseId: string) => void;
+  onEditExpense: (expense: Expense) => void;
   onAddExpense: (groupId: string, payload: Omit<Expense, "id" | "createdAt">) => Promise<boolean>;
   onSettle: (payment: SettledPayment) => Promise<boolean>;
+  currentUserId: string;
 };
 
 type GroupCardProps = {
@@ -250,13 +257,15 @@ function applySettlements(
 function computeBalanceStatusForUser(
   group: Group,
   effectiveDebts: DebtEdge[],
-  currencyCode: string
+  currencyCode: string,
+  currentUserId: string
 ): BalanceStatus {
   let owedToYou = 0;
   let youOwe = 0;
+  const activeUserId = group.userId === currentUserId ? "you" : currentUserId;
   for (const e of effectiveDebts) {
-    if (e.toId === CURRENT_USER_ID) owedToYou += e.amount;
-    if (e.fromId === CURRENT_USER_ID) youOwe += e.amount;
+    if (e.toId === activeUserId) owedToYou += e.amount;
+    if (e.fromId === activeUserId) youOwe += e.amount;
   }
   const net = owedToYou - youOwe;
   if (net > 0)
@@ -939,6 +948,319 @@ function NewExpenseModal({
   );
 }
 
+type EditExpenseModalProps = {
+  open: boolean;
+  members: Member[];
+  currencyCode: string;
+  expense: Expense | null;
+  onClose: () => void;
+  onSave: (expenseId: string, updated: {
+    payerId: string;
+    label: string;
+    category: Expense["category"];
+    totalAmount: number;
+    shares: ExpenseShare[];
+  }) => Promise<boolean>;
+};
+
+function EditExpenseModal({
+  open,
+  members,
+  currencyCode,
+  expense,
+  onClose,
+  onSave,
+}: EditExpenseModalProps) {
+  const [payerId, setPayerId] = useState<string>("");
+  const [label, setLabel] = useState("");
+  const [category, setCategory] = useState<Expense["category"]>("Food");
+  const [totalAmount, setTotalAmount] = useState("");
+  const [autoDivide, setAutoDivide] = useState(true);
+  const [selectedMemberIds, setSelectedMemberIds] = useState<string[]>([]);
+  const [manualShares, setManualShares] = useState<Record<string, string>>({});
+  const [saving, setSaving] = useState(false);
+
+  const toggleMember = (memberId: string) => {
+    setSelectedMemberIds((prev) =>
+      prev.includes(memberId)
+        ? prev.filter((id) => id !== memberId)
+        : [...prev, memberId]
+    );
+  };
+
+  const parsedTotal = Number(totalAmount) || 0;
+
+  const computedShares: ExpenseShare[] = useMemo(() => {
+    if (parsedTotal <= 0 || selectedMemberIds.length === 0) return [];
+    if (autoDivide) {
+      const equal = parsedTotal / selectedMemberIds.length;
+      return selectedMemberIds.map((id) => ({
+        memberId: id,
+        amount: Number(equal.toFixed(2)),
+      }));
+    }
+    return selectedMemberIds.map((id) => ({
+      memberId: id,
+      amount: Number(manualShares[id] || 0),
+    }));
+  }, [autoDivide, parsedTotal, selectedMemberIds, manualShares]);
+
+  const manualTotal = computedShares.reduce((sum, s) => sum + s.amount, 0);
+  const isManualMismatch =
+    !autoDivide && parsedTotal > 0 && Math.abs(manualTotal - parsedTotal) > 0.01;
+
+  const handleSave = async () => {
+    if (!expense || !payerId || !label.trim() || parsedTotal <= 0) return;
+    if (computedShares.length === 0) return;
+    if (isManualMismatch) return;
+    setSaving(true);
+    try {
+      const saved = await onSave(expense.id, {
+        payerId,
+        label: label.trim(),
+        category,
+        totalAmount: parsedTotal,
+        shares: computedShares,
+      });
+      if (saved) {
+        onClose();
+      }
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!open || !expense) return;
+    setPayerId(expense.payerId);
+    setLabel(expense.label);
+    setCategory(expense.category);
+    setTotalAmount(String(expense.amount));
+
+    const sharesList = expense.shares || [];
+    const equalShare = expense.amount / sharesList.length;
+    const isAutoDivided = sharesList.every(
+      (s) => Math.abs(s.amount - equalShare) <= 0.02
+    );
+    setAutoDivide(isAutoDivided);
+    setSelectedMemberIds(sharesList.map((s) => s.memberId));
+
+    const manual: Record<string, string> = {};
+    for (const s of sharesList) {
+      manual[s.memberId] = String(s.amount);
+    }
+    setManualShares(manual);
+  }, [open, expense]);
+
+  if (!open || !expense) return null;
+
+  return (
+    <AnimatePresence>
+      <motion.div
+        className="fixed inset-0 z-40 flex items-center justify-center overflow-y-auto bg-slate-950/40 p-4 backdrop-blur-sm"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+      >
+        <motion.div
+          role="dialog"
+          aria-modal="true"
+          className="max-h-[calc(100vh-2rem)] w-full max-w-xl overflow-y-auto rounded-2xl border border-slate-200/80 bg-white p-5 text-sm shadow-xl shadow-slate-900/10 dark:border-slate-800/80 dark:bg-slate-950"
+          initial={{ opacity: 0, y: 12, scale: 0.98 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          exit={{ opacity: 0, y: 8, scale: 0.98 }}
+        >
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-50">
+              Edit expense
+            </h2>
+            <button
+              onClick={onClose}
+              disabled={saving}
+              className="rounded-full px-2 py-1 text-xs text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-900"
+            >
+              Close
+            </button>
+          </div>
+
+          <div className="mt-4 grid gap-3 text-xs sm:grid-cols-2">
+            <div className="space-y-3">
+              <div>
+                <label className="text-[11px] font-medium text-slate-600 dark:text-slate-300">
+                  Who pays
+                </label>
+                <select
+                  value={payerId}
+                  onChange={(e) => setPayerId(e.target.value)}
+                  disabled={saving}
+                  className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-900 outline-none ring-0 transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-50"
+                >
+                  {members.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="text-[11px] font-medium text-slate-600 dark:text-slate-300">
+                  For what
+                </label>
+                <input
+                  value={label}
+                  onChange={(e) => setLabel(e.target.value)}
+                  disabled={saving}
+                  placeholder="Dinner, taxi, hotel, groceries..."
+                  className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-900 outline-none ring-0 transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-50"
+                />
+                <select
+                  value={category}
+                  onChange={(e) =>
+                    setCategory(e.target.value as Expense["category"])
+                  }
+                  disabled={saving}
+                  className="mt-2 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-900 outline-none ring-0 transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-50"
+                >
+                  {(["Food", "Travel", "Hotel", "Groceries", "Party", "Other"] as const).map(
+                    (cat) => (
+                      <option key={cat} value={cat}>
+                        {cat}
+                      </option>
+                    )
+                  )}
+                </select>
+              </div>
+
+              <div>
+                <label className="text-[11px] font-medium text-slate-600 dark:text-slate-300">
+                  Amount ({currencyCode})
+                </label>
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  step="any"
+                  value={totalAmount}
+                  onChange={(e) => setTotalAmount(e.target.value)}
+                  disabled={saving}
+                  placeholder="0.00"
+                  className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-900 outline-none ring-0 transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-50"
+                />
+              </div>
+            </div>
+
+            <div className="flex flex-col rounded-xl border border-slate-100 bg-slate-50/50 p-3 dark:border-slate-800/80 dark:bg-slate-900/40">
+              <div className="flex items-center justify-between">
+                <span className="font-semibold text-slate-800 dark:text-slate-200">
+                  To whom
+                </span>
+                <label className="flex items-center gap-1.5 font-medium text-slate-600 dark:text-slate-400">
+                  <input
+                    type="checkbox"
+                    checked={autoDivide}
+                    onChange={(e) => setAutoDivide(e.target.checked)}
+                    disabled={saving}
+                    className="rounded text-emerald-500 focus:ring-emerald-500/20"
+                  />
+                  Auto divide equally
+                </label>
+              </div>
+
+              <div className="mt-3 flex-1 overflow-y-auto space-y-2">
+                {members.map((m) => {
+                  const isChecked = selectedMemberIds.includes(m.id);
+                  return (
+                    <div
+                      key={m.id}
+                      className="flex items-center justify-between gap-3 text-slate-700 dark:text-slate-300"
+                    >
+                      <label className="flex items-center gap-2 font-medium">
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={() => toggleMember(m.id)}
+                          disabled={saving}
+                          className="rounded text-emerald-500 focus:ring-emerald-500/20"
+                        />
+                        <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-slate-200 text-[10px] font-bold text-slate-700 dark:bg-slate-800 dark:text-slate-300">
+                          {initials(m.name)}
+                        </span>
+                        <span>{m.name}</span>
+                      </label>
+                      {!autoDivide && isChecked && (
+                        <div className="flex items-center gap-1">
+                          <span className="text-[10px] text-slate-400">
+                            {currencyCode}
+                          </span>
+                          <input
+                            type="number"
+                            step="any"
+                            value={manualShares[m.id] ?? ""}
+                            onChange={(e) =>
+                              setManualShares((prev) => ({
+                                ...prev,
+                                [m.id]: e.target.value,
+                              }))
+                            }
+                            disabled={saving}
+                            placeholder="0.00"
+                            className="w-16 rounded border border-slate-200 bg-white px-1.5 py-0.5 text-right text-[11px] text-slate-900 outline-none focus:border-emerald-500 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-50"
+                          />
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
+              {!autoDivide && parsedTotal > 0 && (
+                <div className="mt-3 border-t border-slate-100 pt-2 dark:border-slate-800">
+                  <div className="flex items-center justify-between text-[11px] font-medium">
+                    <span className="text-slate-500">Total assigned:</span>
+                    <span
+                      className={
+                        isManualMismatch
+                          ? "font-bold text-red-600 dark:text-red-400"
+                          : "font-bold text-emerald-600 dark:text-emerald-400"
+                      }
+                    >
+                      {formatAmount(manualTotal, currencyCode)}
+                    </span>
+                  </div>
+                  {isManualMismatch && (
+                    <p className="mt-1 text-[10px] leading-normal text-red-600 dark:text-red-400">
+                      Manual entries must total {formatAmount(parsedTotal, currencyCode)} (currently off by {formatAmount(Math.abs(manualTotal - parsedTotal), currencyCode)}).
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="mt-5 flex items-center justify-between gap-3 border-t border-slate-100 pt-4 dark:border-slate-800">
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={saving}
+              className="rounded-lg px-3 py-1.5 text-xs font-medium text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-900"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleSave}
+              disabled={saving || !payerId || !label.trim() || parsedTotal <= 0 || computedShares.length === 0 || isManualMismatch}
+              className="rounded-full bg-emerald-500 px-4 py-1.5 text-xs font-semibold text-slate-950 shadow-sm shadow-emerald-500/40 hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {saving ? "Saving..." : "Save changes"}
+            </button>
+          </div>
+        </motion.div>
+      </motion.div>
+    </AnimatePresence>
+  );
+}
+
 function ExpenseFlowDiagram({ expense, members, currencyCode }: ExpenseFlowDiagramProps) {
   const payer = members.find((m) => m.id === expense.payerId);
 
@@ -1030,6 +1352,7 @@ function ExpenseCard({
   expanded,
   onToggle,
   onDelete,
+  onEdit,
   currencyCode,
 }: ExpenseCardProps) {
   const payer = members.find((m) => m.id === expense.payerId);
@@ -1072,27 +1395,48 @@ function ExpenseCard({
               })}
             </p>
           </div>
-          {onDelete && (
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                onDelete();
-              }}
-              onMouseEnter={(e) => e.stopPropagation()}
-              onMouseLeave={(e) => e.stopPropagation()}
-              className={`rounded-full p-1.5 text-slate-400 transition hover:bg-red-100 hover:text-red-500 dark:hover:bg-red-900/30 ${
-                hover ? "opacity-100" : "opacity-0"
-              }`}
-              aria-label="Delete expense"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4">
-                <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-                <line x1="10" y1="11" x2="10" y2="17" />
-                <line x1="14" y1="11" x2="14" y2="17" />
-              </svg>
-            </button>
-          )}
+          <div className="flex items-center gap-1">
+            {onEdit && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onEdit();
+                }}
+                onMouseEnter={(e) => e.stopPropagation()}
+                onMouseLeave={(e) => e.stopPropagation()}
+                className={`rounded-full p-1.5 text-slate-400 transition hover:bg-slate-200 hover:text-slate-700 dark:hover:bg-slate-800 ${
+                  hover ? "opacity-100" : "opacity-0"
+                }`}
+                aria-label="Edit expense"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4">
+                  <path d="M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
+                </svg>
+              </button>
+            )}
+            {onDelete && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onDelete();
+                }}
+                onMouseEnter={(e) => e.stopPropagation()}
+                onMouseLeave={(e) => e.stopPropagation()}
+                className={`rounded-full p-1.5 text-slate-400 transition hover:bg-red-100 hover:text-red-500 dark:hover:bg-red-900/30 ${
+                  hover ? "opacity-100" : "opacity-0"
+                }`}
+                aria-label="Delete expense"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4">
+                  <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                  <line x1="10" y1="11" x2="10" y2="17" />
+                  <line x1="14" y1="11" x2="14" y2="17" />
+                </svg>
+              </button>
+            )}
+          </div>
         </div>
       </motion.div>
 
@@ -1117,8 +1461,10 @@ function GroupDetail({
   currencyCode,
   settledPayments,
   onDeleteExpense,
+  onEditExpense,
   onAddExpense,
   onSettle,
+  currentUserId,
 }: GroupDetailProps) {
   const [activeTab, setActiveTab] = useState<"expenses" | "balances" | "map">(
     "expenses"
@@ -1255,7 +1601,8 @@ function GroupDetail({
             <button
               type="button"
               onClick={() => {
-                const youOwe = effectiveDebts.filter((e) => e.fromId === CURRENT_USER_ID);
+                const activeUserId = group.userId === currentUserId ? "you" : currentUserId;
+                const youOwe = effectiveDebts.filter((e) => e.fromId === activeUserId);
                 if (youOwe.length > 0) {
                   void Promise.all(
                     youOwe.map((e) =>
@@ -1332,6 +1679,7 @@ function GroupDetail({
                     )
                   }
                   onDelete={() => onDeleteExpense(group.id, expense.id)}
+                  onEdit={() => onEditExpense(expense)}
                   currencyCode={currencyCode}
                 />
               ))
@@ -1559,6 +1907,7 @@ type SettlementSuggestionsPanelProps = {
   settledPayments: SettledPayment[];
   currencyCode: string;
   onSettle: (payment: SettledPayment) => Promise<boolean>;
+  currentUserId: string;
 };
 
 function SettlementSuggestionsPanel({
@@ -1566,6 +1915,7 @@ function SettlementSuggestionsPanel({
   settledPayments,
   currencyCode,
   onSettle,
+  currentUserId,
 }: SettlementSuggestionsPanelProps) {
   const suggestions = useMemo(() => {
     const out: Array<{
@@ -1579,10 +1929,11 @@ function SettlementSuggestionsPanel({
       settled: boolean;
     }> = [];
     for (const g of groups) {
+      const activeUserId = g.userId === currentUserId ? "you" : currentUserId;
       const net = computeNetDebtsFromExpenses(g);
       const effective = applySettlements(net, g.id, settledPayments);
       for (const e of effective) {
-        if (e.fromId !== CURRENT_USER_ID && e.toId !== CURRENT_USER_ID) continue;
+        if (e.fromId !== activeUserId && e.toId !== activeUserId) continue;
         const from = g.members.find((m) => m.id === e.fromId);
         const to = g.members.find((m) => m.id === e.toId);
         out.push({
@@ -1597,7 +1948,7 @@ function SettlementSuggestionsPanel({
         });
       }
       for (const s of settledPayments.filter((x) => x.groupId === g.id)) {
-        if (s.fromId !== CURRENT_USER_ID && s.toId !== CURRENT_USER_ID) continue;
+        if (s.fromId !== activeUserId && s.toId !== activeUserId) continue;
         const from = g.members.find((m) => m.id === s.fromId);
         const to = g.members.find((m) => m.id === s.toId);
         out.push({
@@ -1613,14 +1964,18 @@ function SettlementSuggestionsPanel({
       }
     }
     return out;
-  }, [groups, settledPayments]);
+  }, [groups, settledPayments, currentUserId]);
 
   const totalToPay = useMemo(
     () =>
       suggestions
-        .filter((s) => s.fromId === CURRENT_USER_ID && !s.settled)
+        .filter((s) => {
+          const g = groups.find((group) => group.id === s.groupId);
+          const activeUserId = g?.userId === currentUserId ? "you" : currentUserId;
+          return s.fromId === activeUserId && !s.settled;
+        })
         .reduce((sum, s) => sum + s.amount, 0),
-    [suggestions]
+    [suggestions, currentUserId, groups]
   );
 
   return (
@@ -1786,6 +2141,8 @@ export default function GroupsPage() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [savingAction, setSavingAction] = useState<string | null>(null);
+  const [currentUserId, setCurrentUserId] = useState<string>("");
+  const [editExpense, setEditExpense] = useState<Expense | null>(null);
 
   const selectedGroup = groups.find((g) => g.id === selectedGroupId) ?? null;
 
@@ -1805,20 +2162,39 @@ export default function GroupsPage() {
       setSettledPayments([]);
       setSelectedGroupId(null);
       setLoading(false);
+      setCurrentUserId("");
       return;
     }
 
+    setCurrentUserId(user.id);
+
     try {
       const { groups: rows, settlements } = await fetchGroupsForUser(user.id);
-      const nextGroups = rows.map((r) =>
-        dbGroupToGroup(
+      const nextGroups = rows.map((r) => {
+        // Map members dynamically to resolve "You" correctly based on current logged in user
+        const mappedMembers = (r.members ?? []).map((m) => {
+          if (m.id === user.id) {
+            return { ...m, name: "You" };
+          }
+          if (m.id === "you") {
+            if (r.user_id === user.id) {
+              return { ...m, name: "You" };
+            } else {
+              return { ...m, name: m.name === "You" ? "Owner" : m.name };
+            }
+          }
+          return m;
+        });
+
+        return dbGroupToGroup(
           {
             ...r,
+            members: mappedMembers,
             expenses: r.expenses ?? [],
           },
           currencyCode
-        )
-      );
+        );
+      });
 
       setGroups(nextGroups);
       setSettledPayments(
@@ -1885,7 +2261,7 @@ export default function GroupsPage() {
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) return;
         const memberName = user.user_metadata?.full_name || user.email?.split("@")[0] || "Member";
-        const joined = await dbJoinGroup(joinId, { id: user.id, name: memberName });
+        const joined = await dbJoinGroup(joinId, { id: user.id, name: memberName }, user.email);
         if (joined && !cancelled) {
           await loadGroups();
           setSelectedGroupId(joinId);
@@ -1925,8 +2301,9 @@ export default function GroupsPage() {
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) throw new Error("You must be signed in to create groups.");
 
+        const inviterName = user.user_metadata?.full_name || user.email?.split("@")[0] || "Owner";
         const members: Member[] = [
-          { id: CURRENT_USER_ID, name: "You" },
+          { id: CURRENT_USER_ID, name: inviterName },
           ...payload.members.map((m, idx) => ({
             id: `m-${idx}-${m.replace(/\s/g, "")}`,
             name: m,
@@ -1944,7 +2321,6 @@ export default function GroupsPage() {
         }
 
         // Send notifications to invited emails
-        const inviterName = user.user_metadata?.full_name || user.email?.split("@")[0] || "A user";
         void createGroupInvitations(created.id, payload.name, { id: user.id, email: user.email, name: inviterName }, payload.members);
         if (typeof window !== "undefined") {
           window.dispatchEvent(new CustomEvent("moneymap:invites-updated"));
@@ -1967,7 +2343,25 @@ export default function GroupsPage() {
   const handleUpdateGroup = useCallback(
     async (groupId: string, payload: { name: string; description: string; members: Member[] }) => {
       return runGroupAction<boolean>("update-group", async () => {
+        const originalGroup = groups.find((g) => g.id === groupId);
+        const originalNames = new Set(originalGroup?.members.map((m) => m.name.toLowerCase()) || []);
+        const newMembers = payload.members.filter((m) => !originalNames.has(m.name.toLowerCase()));
+
         await dbUpdateGroup(groupId, payload);
+
+        // Invite new members
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+          const inviterName = user.user_metadata?.full_name || user.email?.split("@")[0] || "A user";
+          const newEmails = newMembers.map((m) => m.name);
+          if (newEmails.length > 0) {
+            void createGroupInvitations(groupId, payload.name, { id: user.id, email: user.email, name: inviterName }, newEmails);
+            if (typeof window !== "undefined") {
+              window.dispatchEvent(new CustomEvent("moneymap:invites-updated"));
+            }
+          }
+        }
+
         setGroups((prev) =>
           prev.map((g) =>
             g.id === groupId
@@ -1979,24 +2373,64 @@ export default function GroupsPage() {
         return true;
       });
     },
-    [runGroupAction]
+    [runGroupAction, groups]
   );
 
-  const handleDeleteGroup = useCallback(async (group: Group) => {
-    return runGroupAction<boolean>("delete-group", async () => {
-      await dbDeleteGroup(group.id, group.name);
-      setGroups((prev) => {
-        const next = prev.filter((g) => g.id !== group.id && g.name.toLowerCase() !== group.name.toLowerCase());
-        setSelectedGroupId((current) =>
-          current === group.id ? next[0]?.id ?? null : current
-        );
-        return next;
+const handleDeleteGroup = useCallback(async (group: Group) => {
+  return runGroupAction<boolean>("delete-group", async () => {
+    await dbDeleteGroup(group.id);
+    await loadGroups();
+    setDeleteConfirmGroup(null);
+    return true;
+  });
+}, [runGroupAction, loadGroups]);
+
+  const handleEditExpenseTrigger = (expense: Expense) => {
+    setEditExpense(expense);
+  };
+
+  const handleSaveExpense = useCallback(async (expenseId: string, payload: {
+    payerId: string;
+    label: string;
+    category: Expense["category"];
+    totalAmount: number;
+    shares: ExpenseShare[];
+  }) => {
+    if (!selectedGroupId) return false;
+    const res = await runGroupAction<boolean>("edit-expense", async () => {
+      await dbUpdateGroupExpense(selectedGroupId, expenseId, {
+        payer_id: payload.payerId,
+        category: payload.category,
+        label: payload.label,
+        amount: payload.totalAmount,
+        shares: payload.shares,
       });
-      setSettledPayments((prev) => prev.filter((payment) => payment.groupId !== group.id));
-      setDeleteConfirmGroup(null);
+
+      setGroups((prev) =>
+        prev.map((g) => {
+          if (g.id !== selectedGroupId) return g;
+          return {
+            ...g,
+            expenses: g.expenses.map((e) =>
+              e.id === expenseId
+                ? {
+                    ...e,
+                    payerId: payload.payerId,
+                    label: payload.label,
+                    category: payload.category,
+                    amount: payload.totalAmount,
+                    shares: payload.shares,
+                  }
+                : e
+            ),
+          };
+        })
+      );
+      setEditExpense(null);
       return true;
     });
-  }, [runGroupAction]);
+    return res;
+  }, [selectedGroupId, runGroupAction]);
 
   const handleAddExpense = useCallback(
     async (groupId: string, payload: Omit<Expense, "id" | "createdAt">): Promise<boolean> => {
@@ -2073,8 +2507,9 @@ export default function GroupsPage() {
       const g = groups.find((x) => x.id === groupId);
       if (!g || g.members.length === 0) return false;
       const share = amount / g.members.length;
+      const activeUserId = g.userId === currentUserId ? "you" : currentUserId;
       return handleAddExpense(groupId, {
-        payerId: CURRENT_USER_ID,
+        payerId: activeUserId,
         category: "Other",
         label: description,
         amount,
@@ -2085,16 +2520,16 @@ export default function GroupsPage() {
         })),
       });
     },
-    [groups, currencyCode, handleAddExpense]
+    [groups, currencyCode, handleAddExpense, currentUserId]
   );
 
   const groupBalanceStatus = useCallback(
     (group: Group): BalanceStatus => {
       const net = computeNetDebtsFromExpenses(group);
       const effective = applySettlements(net, group.id, settledPayments);
-      return computeBalanceStatusForUser(group, effective, currencyCode);
+      return computeBalanceStatusForUser(group, effective, currencyCode, currentUserId);
     },
-    [settledPayments, currencyCode]
+    [settledPayments, currencyCode, currentUserId]
   );
 
   return (
@@ -2172,6 +2607,7 @@ export default function GroupsPage() {
             settledPayments={settledPayments}
             currencyCode={currencyCode}
             onSettle={handleSettle}
+            currentUserId={currentUserId}
           />
         </div>
       </div>
@@ -2182,8 +2618,10 @@ export default function GroupsPage() {
           currencyCode={currencyCode}
           settledPayments={settledPayments}
           onDeleteExpense={handleDeleteExpense}
+          onEditExpense={handleEditExpenseTrigger}
           onAddExpense={handleAddExpense}
           onSettle={handleSettle}
+          currentUserId={currentUserId}
         />
       )}
 
@@ -2198,6 +2636,15 @@ export default function GroupsPage() {
         group={editGroup}
         onClose={() => setEditGroup(null)}
         onSave={handleUpdateGroup}
+      />
+
+      <EditExpenseModal
+        open={!!editExpense}
+        members={selectedGroup?.members ?? []}
+        currencyCode={currencyCode}
+        expense={editExpense}
+        onClose={() => setEditExpense(null)}
+        onSave={handleSaveExpense}
       />
 
       {deleteConfirmGroup && (

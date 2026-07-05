@@ -1,8 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
-
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+import { requireUser } from "@/lib/supabaseServer";
 
 type DetectedRow = {
   id: string;
@@ -28,11 +25,44 @@ type DetectedTransactionDto = {
   date: string;
 };
 
+// "Today" is computed in India Standard Time (UTC+5:30) rather than the
+// server's runtime timezone, since a serverless host is typically UTC and
+// that misclassifies transactions near midnight IST.
+const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
+
+function istParts(d: Date) {
+  const shifted = new Date(d.getTime() + IST_OFFSET_MS);
+  return {
+    year: shifted.getUTCFullYear(),
+    month: shifted.getUTCMonth(),
+    day: shifted.getUTCDate(),
+  };
+}
+
+function istDateKey(d: Date) {
+  const { year, month, day } = istParts(d);
+  return `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
+function istGmailDateQuery(d: Date) {
+  const { year, month, day } = istParts(d);
+  return `${year}/${String(month + 1).padStart(2, "0")}/${String(day).padStart(2, "0")}`;
+}
+
+function isSameIstDay(a: Date, b: Date) {
+  const pa = istParts(a);
+  const pb = istParts(b);
+  return pa.year === pb.year && pa.month === pb.month && pa.day === pb.day;
+}
+
 function predictCategory(merchant: string): string {
   const name = merchant.toLowerCase();
   if (name.includes("swiggy") || name.includes("zomato")) return "Food";
-  if (name.includes("uber")) return "Transport";
+  if (name.includes("uber") || name.includes("ola")) return "Transport";
   if (name.includes("amazon") || name.includes("flipkart")) return "Shopping";
+  if (name.includes("netflix") || name.includes("spotify") || name.includes("hotstar")) {
+    return "Subscription";
+  }
   return "Uncategorized";
 }
 
@@ -71,23 +101,11 @@ function extractAmountAndMerchant(text: string): {
   return { amount, merchant: merchant || null };
 }
 
-function isToday(date: Date): boolean {
-  const now = new Date();
-  return (
-    date.getFullYear() === now.getFullYear() &&
-    date.getMonth() === now.getMonth() &&
-    date.getDate() === now.getDate()
-  );
-}
-
 export async function GET(request: NextRequest) {
-  const supabase = createClient(supabaseUrl, supabaseAnonKey);
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { supabase, user, error: authError } = await requireUser(request);
 
   if (!user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    return NextResponse.json({ error: authError ?? "Unauthorized" }, { status: 401 });
   }
 
   const gmailAccessTokenHeader = request.headers.get("authorization");
@@ -98,46 +116,29 @@ export async function GET(request: NextRequest) {
   if (gmailAccessToken) {
     try {
       const now = new Date();
-      const yyyy = now.getFullYear();
-      const mm = String(now.getMonth() + 1).padStart(2, "0");
-      const dd = String(now.getDate()).padStart(2, "0");
-
-      const keywords = [
-        "debited",
-        "credited",
-        "spent",
-        "paid",
-        "UPI",
-        "transaction",
-        "payment",
-      ];
-      const query = `after:${yyyy}/${mm}/${dd} (${keywords.join(" OR ")})`;
+      const keywords = ["debited", "credited", "spent", "paid", "UPI", "transaction", "payment"];
+      const query = `after:${istGmailDateQuery(now)} (${keywords.join(" OR ")})`;
 
       const listRes = await fetch(
         `https://gmail.googleapis.com/gmail/v1/users/me/messages?q=${encodeURIComponent(
           query
         )}&maxResults=20`,
-        {
-          headers: {
-            Authorization: `Bearer ${gmailAccessToken}`,
-          },
-        }
+        { headers: { Authorization: `Bearer ${gmailAccessToken}` } }
       );
 
       if (!listRes.ok) {
         const errorBody = await listRes.text();
+        const isAuthError = listRes.status === 401;
         return NextResponse.json(
           {
-            error: "Failed to fetch Gmail messages",
+            error: isAuthError ? "gmail_token_expired" : "Failed to fetch Gmail messages",
             details: errorBody,
           },
-          { status: 400 }
+          { status: isAuthError ? 401 : 400 }
         );
       }
 
-      const listJson = (await listRes.json()) as {
-        messages?: { id: string }[];
-      };
+      const listJson = (await listRes.json()) as { messages?: { id: string }[] };
 
       const messageIds = listJson.messages?.map((m) => m.id) ?? [];
 
@@ -154,19 +155,12 @@ export async function GET(request: NextRequest) {
 
         const newIds = messageIds.filter((id) => !existingEmailIds.has(id));
 
-        const detectedToInsert: Omit<
-          DetectedRow,
-          "id" | "created_at"
-        >[] = [];
+        const detectedToInsert: Omit<DetectedRow, "id" | "created_at">[] = [];
 
         for (const id of newIds) {
           const msgRes = await fetch(
             `https://gmail.googleapis.com/gmail/v1/users/me/messages/${id}?format=full`,
-            {
-              headers: {
-                Authorization: `Bearer ${gmailAccessToken}`,
-              },
-            }
+            { headers: { Authorization: `Bearer ${gmailAccessToken}` } }
           );
 
           if (!msgRes.ok) continue;
@@ -176,7 +170,7 @@ export async function GET(request: NextRequest) {
           const internalDateMs = Number(msgJson.internalDate ?? 0);
           const internalDate = new Date(internalDateMs || Date.now());
 
-          if (!isToday(internalDate)) {
+          if (!isSameIstDay(internalDate, now)) {
             continue;
           }
 
@@ -196,7 +190,7 @@ export async function GET(request: NextRequest) {
           }
 
           const parsedDate = dateHeader ? new Date(dateHeader) : internalDate;
-          const dateIso = parsedDate.toISOString().slice(0, 10);
+          const dateIso = istDateKey(parsedDate);
 
           detectedToInsert.push({
             user_id: user.id,
@@ -211,18 +205,29 @@ export async function GET(request: NextRequest) {
         }
 
         if (detectedToInsert.length > 0) {
-          await supabase.from("detected_transactions").insert(detectedToInsert);
+          const { error: insertError } = await supabase
+            .from("detected_transactions")
+            .insert(detectedToInsert);
+          if (insertError) {
+            return NextResponse.json(
+              { error: "Failed to store detected transactions", details: insertError.message },
+              { status: 500 }
+            );
+          }
         }
       }
     } catch (e) {
       return NextResponse.json(
-        { error: "Failed to sync with Gmail" },
+        {
+          error: "Failed to sync with Gmail",
+          details: e instanceof Error ? e.message : String(e),
+        },
         { status: 500 }
       );
     }
   }
 
-  const todayIso = new Date().toISOString().slice(0, 10);
+  const todayIso = istDateKey(new Date());
 
   const { data, error } = await supabase
     .from("detected_transactions")
@@ -233,24 +238,19 @@ export async function GET(request: NextRequest) {
     .order("created_at", { ascending: false });
 
   if (error) {
-    return NextResponse.json(
-      { error: error.message },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  const detected: DetectedTransactionDto[] = (data as DetectedRow[]).map(
-    (row) => ({
-      id: row.id,
-      amount: Number(row.amount),
-      merchant: row.merchant,
-      predictedCategory: row.predicted_category ?? "Uncategorized",
-      emailId: row.email_id,
-      source: row.source,
-      status: row.status,
-      date: row.date,
-    })
-  );
+  const detected: DetectedTransactionDto[] = (data as DetectedRow[]).map((row) => ({
+    id: row.id,
+    amount: Number(row.amount),
+    merchant: row.merchant,
+    predictedCategory: row.predicted_category ?? "Uncategorized",
+    emailId: row.email_id,
+    source: row.source,
+    status: row.status,
+    date: row.date,
+  }));
 
   return NextResponse.json({ detected });
 }

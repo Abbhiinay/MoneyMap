@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { supabase } from "@/lib/supabaseClient";
+import { supabase, getSupabaseAuthHeaders } from "@/lib/supabaseClient";
 import { useUserCurrency } from "@/lib/useUserCurrency";
 import { categories } from "@/data/categories";
 import { EditExpenseModal } from "@/app/components/EditExpenseModal";
@@ -74,7 +74,8 @@ export default function DashboardPage() {
   const fetchDetected = async () => {
     setLoadingDetected(true);
     try {
-      const res = await fetch("/api/gmail/today-transactions");
+      const headers = await getSupabaseAuthHeaders();
+      const res = await fetch("/api/gmail/today-transactions", { headers });
       if (!res.ok) return;
       const json = await res.json();
       const items: DetectedTransaction[] = json.detected ?? [];
@@ -423,8 +424,10 @@ export default function DashboardPage() {
                   <button
                     type="button"
                     onClick={async () => {
+                      const headers = await getSupabaseAuthHeaders();
                       await fetch(`/api/detected-transaction/${tx.id}`, {
                         method: "DELETE",
+                        headers,
                       });
                       void fetchDetected();
                     }}
@@ -572,9 +575,10 @@ export default function DashboardPage() {
                 <button
                   type="button"
                   onClick={async () => {
+                    const headers = await getSupabaseAuthHeaders();
                     await fetch(
                       `/api/detected-transaction/${reviewingDetected.id}`,
-                      { method: "DELETE" }
+                      { method: "DELETE", headers }
                     );
                     setReviewingDetected(null);
                     void fetchDetected();
@@ -586,9 +590,11 @@ export default function DashboardPage() {
                 <button
                   type="button"
                   onClick={async () => {
+                    const headers = await getSupabaseAuthHeaders();
                     await fetch("/api/expenses/from-detected", {
                       method: "POST",
                       headers: {
+                        ...headers,
                         "Content-Type": "application/json",
                       },
                       body: JSON.stringify({
