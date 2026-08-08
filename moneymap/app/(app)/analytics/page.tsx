@@ -55,10 +55,6 @@ const formatMonthLabel = (yyyyMm: string) => {
   return d.toLocaleString("default", { month: "long", year: "numeric" });
 };
 
-/**
- * Returns all months that contain transactions
- * Output is "YYYY-MM" sorted newest -> oldest
- */
 function getAvailableMonths(transactions: Expense[]) {
   const months = new Set<string>();
   transactions.forEach((tx) => {
@@ -70,10 +66,6 @@ function getAvailableMonths(transactions: Expense[]) {
   return Array.from(months).sort((a, b) => (a < b ? 1 : -1));
 }
 
-/**
- * Returns an array of length = days in the given month, containing total spend per day.
- * Month is "YYYY-MM".
- */
 function getDailySpendingForMonth(transactions: Expense[], month: string) {
   const [year, monthNum] = month.split("-").map(Number);
   const y = year;
@@ -92,10 +84,6 @@ function getDailySpendingForMonth(transactions: Expense[], month: string) {
   return totals;
 }
 
-/**
- * Returns per-category daily arrays for a given month.
- * Month is "YYYY-MM".
- */
 function getCategoryTrendForMonth(transactions: Expense[], month: string) {
   const [year, monthNum] = month.split("-").map(Number);
   const y = year;
@@ -116,7 +104,6 @@ function getCategoryTrendForMonth(transactions: Expense[], month: string) {
     byCategory[cat][d.getDate() - 1] += Number(tx.amount) || 0;
   });
 
-  // Ensure stable ordering when iterating keys
   return Object.fromEntries(
     Object.entries(byCategory).sort(([a], [b]) => a.localeCompare(b))
   );
@@ -176,7 +163,6 @@ export default function AnalyticsPage() {
 
 
 
-  // Available years from expense data
   const availableYears = useMemo(() => {
     const years = new Set<number>();
     expenses.forEach((exp) => {
@@ -193,7 +179,6 @@ export default function AnalyticsPage() {
     return list;
   }, [expenses]);
 
-  // Yearly spending trend (Jan–Dec for selected year)
   const yearlyData: YearlyPoint[] = useMemo(() => {
     const months: YearlyPoint[] = Array.from(
       { length: 12 },
@@ -218,9 +203,6 @@ export default function AnalyticsPage() {
     return months;
   }, [expenses, selectedYear]);
 
-
-
-  // Month dropdown + daily/category trends (driven by selectedMonth)
   const availableMonths = useMemo(() => {
     const fromData = getAvailableMonths(expenses);
     const now = new Date();
@@ -310,7 +292,6 @@ export default function AnalyticsPage() {
     "#F97316",
   ];
 
-  // Derived insights
   const totalOverall = expenses.reduce(
     (acc, exp) => acc + Number(exp.amount),
     0
@@ -328,7 +309,6 @@ export default function AnalyticsPage() {
   const averageMonthlySpend =
     monthsWithData > 0 ? totalOverall / monthsWithData : 0;
 
-  // Top spending category (overall)
   const topCategory = useMemo(() => {
     const byCategory = expenses.reduce(
       (acc: Record<string, number>, exp) => {
@@ -357,8 +337,7 @@ export default function AnalyticsPage() {
     };
   }, [expenses]);
 
-  // Current-month total for budget progress
-  const budget = 1000;
+  const budget = 5000;
   const now = new Date();
   const currentMonth = now.getMonth();
   const currentYear = now.getFullYear();
@@ -399,7 +378,7 @@ export default function AnalyticsPage() {
 
       {/* Daily Spending Trend (large) + Transaction Details Panel (when a point is clicked) */}
       <div className="flex flex-col gap-6 sm:flex-row">
-        <div className="min-w-0 flex-[0_0_70%] rounded-2xl border border-slate-200/80 bg-white p-4 transition-colors dark:border-slate-800/80 dark:bg-slate-950/80">
+        <div className="min-w-0 w-full sm:flex-[0_0_70%] rounded-2xl border border-slate-200/80 bg-white p-4 transition-colors dark:border-slate-800/80 dark:bg-slate-950/80">
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
             <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-100">
               Daily Spending Trend
@@ -508,7 +487,7 @@ export default function AnalyticsPage() {
         </div>
 
         <div
-          className="min-w-0 flex-[0_0_30%] transition-all duration-300 ease-in-out"
+          className="min-w-0 w-full sm:flex-[0_0_30%] transition-all duration-300 ease-in-out"
           style={{ opacity: selectedDate ? 1 : 0.95 }}
         >
           {selectedDate && (
@@ -744,7 +723,7 @@ export default function AnalyticsPage() {
         {/* Budget progress */}
         <div className="rounded-2xl border border-slate-200/80 bg-white p-4 text-sm transition-colors dark:border-slate-800/80 dark:bg-slate-950/80">
           <p className="text-xs font-medium text-slate-600 dark:text-slate-300">
-            Budget progress (temporary)
+            Budget progress
           </p>
           <div className="mt-3 flex items-baseline justify-between">
             <p className="text-xl font-semibold text-slate-900 dark:text-slate-50">

@@ -53,7 +53,7 @@ alter table public.group_settlements enable row level security;
 alter table public.group_invitations enable row level security;
 alter table public.profiles enable row level security;
 
-drop policy if exists "Users can manage own groups" on public.groups;
+drop policy if exists "Users can manage groups" on public.groups;
 create policy "Users can manage groups"
   on public.groups for all
   using (
@@ -62,12 +62,12 @@ create policy "Users can manage groups"
     or auth.uid() is not null
   );
 
-drop policy if exists "Users can manage expenses of own groups" on public.group_expenses;
+drop policy if exists "Users can manage expenses" on public.group_expenses;
 create policy "Users can manage expenses"
   on public.group_expenses for all
   using (auth.uid() is not null);
 
-drop policy if exists "Users can manage settlements of own groups" on public.group_settlements;
+drop policy if exists "Users can manage settlements" on public.group_settlements;
 create policy "Users can manage settlements"
   on public.group_settlements for all
   using (auth.uid() is not null);
@@ -83,7 +83,7 @@ create policy "Users can manage own profile"
   using (auth.uid() = id)
   with check (auth.uid() = id);
 
-create index if not exists idx_groups_user_idon public.groups(user_id);
+create index if not exists idx_groups_user_id on public.groups(user_id);
 create index if not exists idx_group_expenses_group_id on public.group_expenses(group_id);
 create index if not exists idx_group_settlements_group_id on public.group_settlements(group_id);
 create index if not exists idx_group_invitations_email on public.group_invitations(invited_email);
