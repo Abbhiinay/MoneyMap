@@ -34,7 +34,12 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Detected transaction not found" }, { status: 404 });
   }
 
-  const detected: any = detectedRows;
+  const detected = detectedRows as {
+    predicted_category?: string | null;
+    merchant?: string | null;
+    date?: string | null;
+    amount: number;
+  };
 
   const category =
     body.category && body.category.trim().length > 0

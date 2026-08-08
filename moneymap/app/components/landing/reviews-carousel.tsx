@@ -55,7 +55,7 @@ export default function ReviewsCarousel() {
   const touchEndX = useRef(0);
 
   const goTo = useCallback((index: number) => {
-    setActiveIndex((i) => (index + reviews.length) % reviews.length);
+    setActiveIndex(() => (index + reviews.length) % reviews.length);
   }, []);
 
   useEffect(() => {

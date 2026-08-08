@@ -155,7 +155,7 @@ export default function NotificationsDropdown() {
                 <div className="py-8 text-center text-slate-400 dark:text-slate-500">
                   <p className="text-lg">✨</p>
                   <p className="mt-1 text-xs font-medium">No new notifications</p>
-                  <p className="mt-0.5 text-[11px]">You're all caught up!</p>
+                  <p className="mt-0.5 text-[11px]">You&apos;re all caught up!</p>
                 </div>
               ) : (
                 invitations.map((inv) => (
@@ -178,8 +178,8 @@ export default function NotificationsDropdown() {
                           </span>{" "}
                           invited you to join{" "}
                           <span className="font-semibold text-emerald-700 dark:text-emerald-300">
-                            "{inv.group_name}"
-                          </span>
+                            &quot;{inv.group_name}&quot;
+                           </span>
                         </p>
                       </div>
                     </div>

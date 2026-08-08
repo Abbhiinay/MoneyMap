@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { getSupabaseAuthHeaders } from "@/lib/supabaseClient";
+import { motion, AnimatePresence } from "framer-motion";
 
 const navItems = [
   { label: "Dashboard", href: "/dashboard" },
@@ -21,12 +22,41 @@ type DetectedTransaction = {
   date: string;
 };
 
+interface GoogleOAuth2Client {
+  requestAccessToken: () => void;
+}
+
+interface GoogleOAuth2 {
+  initTokenClient: (config: {
+    client_id?: string;
+    scope?: string;
+    callback?: (res: { access_token?: string }) => void;
+  }) => GoogleOAuth2Client;
+}
+
+interface GoogleAccounts {
+  oauth2?: GoogleOAuth2;
+}
+
+interface GoogleGlobal {
+  accounts?: GoogleAccounts;
+}
+
+type WindowWithGoogle = Window & typeof globalThis & {
+  google?: GoogleGlobal;
+};
+
 export default function Sidebar() {
   const pathname = usePathname();
   const [detected, setDetected] = useState<DetectedTransaction[]>([]);
   const [loadingDetected, setLoadingDetected] = useState(false);
   const [gmailConnected, setGmailConnected] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
+  const [isOpen, setIsOpen] = useState(false);
+
+  useEffect(() => {
+    setIsOpen(false);
+  }, [pathname]);
 
   useEffect(() => {
     const fetchDetected = async () => {
@@ -65,7 +95,7 @@ export default function Sidebar() {
             reject(new Error("Window is not available"));
             return;
           }
-          if ((window as any).google?.accounts?.oauth2) {
+          if ((window as WindowWithGoogle).google?.accounts?.oauth2) {
             resolve();
             return;
           }
@@ -91,7 +121,7 @@ export default function Sidebar() {
 
       await loadScript();
 
-      const google = (window as any).google;
+      const google = (window as WindowWithGoogle).google;
       if (!google?.accounts?.oauth2) {
         setSyncError("Google OAuth is not available in this browser.");
         return;
@@ -104,10 +134,10 @@ export default function Sidebar() {
       }
 
       await new Promise<void>((resolve, reject) => {
-        const client = google.accounts.oauth2.initTokenClient({
+        const client = google!.accounts!.oauth2!.initTokenClient({
           client_id: clientId,
           scope: "https://www.googleapis.com/auth/gmail.readonly",
-          callback: async (tokenResponse: any) => {
+          callback: async (tokenResponse: { access_token?: string }) => {
             if (!tokenResponse?.access_token) {
               setSyncError("Failed to obtain Gmail access token.");
               reject(new Error("No access token"));
@@ -145,7 +175,7 @@ export default function Sidebar() {
         });
         client.requestAccessToken();
       });
-    } catch (err) {
+    } catch {
       if (!syncError) {
         setSyncError("Unable to start Gmail sync.");
       }
@@ -156,16 +186,50 @@ export default function Sidebar() {
 
   return (
     <aside className="sticky top-0 z-30 flex w-full flex-col border-b border-slate-200/80 bg-slate-50/95 px-4 py-3 transition-colors dark:border-slate-800/80 dark:bg-slate-950/90 lg:min-h-screen lg:w-64 lg:border-b-0 lg:border-r lg:py-5">
-      <div className="flex items-center gap-2 px-1 lg:px-2">
-        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-500/10 ring-1 ring-emerald-500/60">
-          <span className="text-sm font-semibold text-emerald-500">MM</span>
+      <div className="flex items-center justify-between w-full lg:block">
+        <div className="flex items-center gap-2 px-1 lg:px-2">
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-500/10 ring-1 ring-emerald-500/60">
+            <span className="text-sm font-semibold text-emerald-500">MM</span>
+          </div>
+          <span className="text-sm font-semibold tracking-tight text-slate-800 dark:text-slate-50">
+            Money<span className="text-emerald-400">Map</span>
+          </span>
         </div>
-        <span className="text-sm font-semibold tracking-tight text-slate-800 dark:text-slate-50">
-          Money<span className="text-emerald-400">Map</span>
-        </span>
+
+        {/* Hamburger Menu Button - Mobile only */}
+        <button
+          type="button"
+          onClick={() => setIsOpen(!isOpen)}
+          className="rounded-lg p-2 text-slate-600 hover:bg-slate-100 focus:outline-none dark:text-slate-300 dark:hover:bg-slate-900 lg:hidden"
+          aria-label="Toggle menu"
+        >
+          <svg
+            className="h-5 w-5"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            {isOpen ? (
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M6 18L18 6M6 6l12 12"
+              />
+            ) : (
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M4 6h16M4 12h16M4 18h16"
+              />
+            )}
+          </svg>
+        </button>
       </div>
 
-      <nav className="mt-4 flex gap-2 overflow-x-auto pb-1 text-sm lg:mt-8 lg:flex-1 lg:flex-col lg:overflow-visible lg:pb-0">
+      {/* Desktop Navigation */}
+      <nav className="mt-8 hidden flex-col gap-2 lg:flex">
         {navItems.map((item) => {
           const isActive =
             item.href === "/"
@@ -176,7 +240,7 @@ export default function Sidebar() {
             <Link
               key={item.href}
               href={item.href}
-              className={`flex shrink-0 items-center justify-between rounded-xl px-3 py-2.5 text-sm font-medium transition lg:shrink ${
+              className={`flex items-center justify-between rounded-xl px-3 py-2.5 text-sm font-medium transition ${
                 isActive
                   ? "bg-emerald-500/15 text-emerald-600 ring-1 ring-emerald-500/60 dark:text-emerald-300"
                   : "text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-900 dark:hover:text-slate-50"
@@ -188,7 +252,8 @@ export default function Sidebar() {
         })}
       </nav>
 
-      <div className="mt-4 hidden rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-xs text-slate-500 transition-colors dark:border-slate-800 dark:bg-slate-950/90 dark:text-slate-400 md:block">
+      {/* Desktop Today's snapshot */}
+      <div className="mt-4 hidden rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-xs text-slate-500 transition-colors dark:border-slate-800 dark:bg-slate-950/90 dark:text-slate-400 lg:block">
         <div className="flex items-center justify-between gap-2">
           <p className="font-medium text-slate-800 dark:text-slate-200">
             Today&apos;s snapshot
@@ -227,7 +292,7 @@ export default function Sidebar() {
                 key={tx.id}
                 className="flex items-center justify-between rounded-lg bg-white/70 px-2 py-1.5 text-[11px] text-slate-700 shadow-sm dark:bg-slate-900/80 dark:text-slate-200"
               >
-                <div className="min-w-0">
+                <div className="min-w-0 flex-1">
                   <p className="truncate font-medium">
                     ₹{tx.amount.toFixed(0)} - {tx.merchant}
                   </p>
@@ -250,6 +315,108 @@ export default function Sidebar() {
           <p className="mt-1 text-[11px] text-red-500">{syncError}</p>
         )}
       </div>
+
+      {/* Mobile Menu Overlay */}
+      <AnimatePresence>
+        {isOpen && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
+            transition={{ duration: 0.2 }}
+            className="w-full overflow-hidden lg:hidden"
+          >
+            <div className="mt-3 flex flex-col gap-4 border-t border-slate-200/60 pt-3 dark:border-slate-800/60">
+              <nav className="flex flex-col gap-1">
+                {navItems.map((item) => {
+                  const isActive =
+                    item.href === "/"
+                      ? pathname === item.href
+                      : pathname.startsWith(item.href);
+
+                  return (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      className={`flex items-center justify-between rounded-xl px-3 py-2 text-sm font-medium transition ${
+                        isActive
+                          ? "bg-emerald-500/15 text-emerald-600 ring-1 ring-emerald-500/60 dark:text-emerald-300"
+                          : "text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-900 dark:hover:text-slate-50"
+                      }`}
+                    >
+                      <span>{item.label}</span>
+                    </Link>
+                  );
+                })}
+              </nav>
+
+              {/* Mobile Today's snapshot */}
+              <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-xs text-slate-500 transition-colors dark:border-slate-800 dark:bg-slate-950/90 dark:text-slate-400">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="font-medium text-slate-800 dark:text-slate-200">
+                    Today&apos;s snapshot
+                  </p>
+                  <button
+                    type="button"
+                    onClick={handleSyncGmail}
+                    className="rounded-full border border-slate-200 px-2 py-1 text-[10px] font-medium text-slate-600 hover:border-emerald-400 hover:text-emerald-500 dark:border-slate-700 dark:text-slate-300 dark:hover:border-emerald-500 dark:hover:text-emerald-300"
+                    disabled={loadingDetected}
+                  >
+                    {gmailConnected ? "Sync Gmail" : "Connect Gmail"}
+                  </button>
+                </div>
+
+                {loadingDetected && (
+                  <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
+                    Checking for today&apos;s Gmail transactions...
+                  </p>
+                )}
+
+                {!loadingDetected && detected.length === 0 && (
+                  <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
+                    {gmailConnected
+                      ? "No transactions detected today."
+                      : "Connect Gmail to automatically detect today&apos;s transactions."}
+                  </p>
+                )}
+
+                {!loadingDetected && detected.length > 0 && (
+                  <div className="mt-2 space-y-1">
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                      Detected transactions today:
+                    </p>
+                    {detected.slice(0, 3).map((tx) => (
+                      <div
+                        key={tx.id}
+                        className="flex items-center justify-between rounded-lg bg-white/70 px-2 py-1.5 text-[11px] text-slate-700 shadow-sm dark:bg-slate-900/80 dark:text-slate-200"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate font-medium">
+                            ₹{tx.amount.toFixed(0)} - {tx.merchant}
+                          </p>
+                          <p className="text-[10px] text-slate-500 dark:text-slate-400">
+                            Category: {tx.predictedCategory}
+                          </p>
+                        </div>
+                        <Link
+                          href={`/dashboard?detectedId=${encodeURIComponent(tx.id)}`}
+                          className="ml-2 shrink-0 rounded-full border border-slate-200 px-2 py-0.5 text-[10px] font-medium text-slate-600 hover:border-emerald-400 hover:text-emerald-500 dark:border-slate-700 dark:text-slate-300 dark:hover:border-emerald-500 dark:hover:text-emerald-300"
+                        >
+                          Review
+                        </Link>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {syncError && (
+                  <p className="mt-1 text-[11px] text-red-500">{syncError}</p>
+                )}
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </aside>
   );
 }

@@ -1,6 +1,4 @@
--- MoneyMap SplitMap Groups & Invitations: run this in Supabase SQL Editor.
 
--- Groups (one per row, owned by user)
 create table if not exists public.groups (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
@@ -10,7 +8,6 @@ create table if not exists public.groups (
   created_at timestamptz not null default now()
 );
 
--- Group expenses (deleted when group is deleted)
 create table if not exists public.group_expenses (
   id uuid primary key default gen_random_uuid(),
   group_id uuid not null references public.groups(id) on delete cascade,
@@ -23,7 +20,6 @@ create table if not exists public.group_expenses (
   created_at timestamptz not null default now()
 );
 
--- Group settlements (deleted when group is deleted)
 create table if not exists public.group_settlements (
   id uuid primary key default gen_random_uuid(),
   group_id uuid not null references public.groups(id) on delete cascade,
@@ -33,7 +29,6 @@ create table if not exists public.group_settlements (
   created_at timestamptz not null default now()
 );
 
--- Group invitations (for in-app notifications and email sharing)
 create table if not exists public.group_invitations (
   id uuid primary key default gen_random_uuid(),
   group_id uuid not null references public.groups(id) on delete cascade,
@@ -45,7 +40,6 @@ create table if not exists public.group_invitations (
   created_at timestamptz not null default now()
 );
 
--- Profiles for app preferences and auth bootstrap.
 create table if not exists public.profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   currency text not null default 'USD',
@@ -53,14 +47,12 @@ create table if not exists public.profiles (
   updated_at timestamptz not null default now()
 );
 
--- Enable RLS
 alter table public.groups enable row level security;
 alter table public.group_expenses enable row level security;
 alter table public.group_settlements enable row level security;
 alter table public.group_invitations enable row level security;
 alter table public.profiles enable row level security;
 
--- RLS Policies
 drop policy if exists "Users can manage own groups" on public.groups;
 create policy "Users can manage groups"
   on public.groups for all
@@ -91,8 +83,7 @@ create policy "Users can manage own profile"
   using (auth.uid() = id)
   with check (auth.uid() = id);
 
--- Indexes
-create index if not exists idx_groups_user_id on public.groups(user_id);
+create index if not exists idx_groups_user_idon public.groups(user_id);
 create index if not exists idx_group_expenses_group_id on public.group_expenses(group_id);
 create index if not exists idx_group_settlements_group_id on public.group_settlements(group_id);
 create index if not exists idx_group_invitations_email on public.group_invitations(invited_email);
@@ -121,3 +112,24 @@ create policy "Users manage own detected transactions"
 
 create index if not exists idx_detected_transactions_user_id on public.detected_transactions(user_id);
 create index if not exists idx_detected_transactions_email_id on public.detected_transactions(email_id);
+
+create table if not exists public.expenses (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  amount numeric not null,
+  category text,
+  description text,
+  date date not null,
+  created_at timestamptz not null default now()
+);
+
+alter table public.expenses enable row level security;
+
+drop policy if exists "Users can manage own expenses" on public.expenses;
+create policy "Users can manage own expenses"
+  on public.expenses for all
+  using (auth.uid() = user_id)
+  with check (auth.uid() = user_id);
+
+create index if not exists idx_expenses_user_id on public.expenses(user_id);
+

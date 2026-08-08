@@ -64,7 +64,7 @@ export function useUserCurrency(): UseUserCurrencyResult {
         if (isMounted) {
           setCurrency(afterUpsert?.currency || DEFAULT_CURRENCY);
         }
-      } catch (e) {
+      } catch {
         if (isMounted) {
           setError("Failed to load currency preference");
           setCurrency(DEFAULT_CURRENCY);
@@ -139,7 +139,7 @@ export function useUserCurrency(): UseUserCurrencyResult {
       if (upsertError) throw upsertError;
 
       setCurrency(next);
-    } catch (e) {
+    } catch {
       setError("Failed to update currency preference");
     } finally {
       setLoading(false);

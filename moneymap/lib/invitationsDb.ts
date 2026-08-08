@@ -1,5 +1,5 @@
 import { supabase } from "./supabaseClient";
-import { fetchGroupById, joinGroup } from "./groupsDb";
+import { joinGroup } from "./groupsDb";
 
 export type DbInvitation = {
   id: string;

@@ -46,11 +46,13 @@ export async function fetchGroupsForUser(userId: string): Promise<{
   groups: Array<DbGroup & { expenses: DbGroupExpense[] }>;
   settlements: DbGroupSettlement[];
 }> {
-  let { data: groupsData, error: groupsError } = await supabase
+  const { data: initialGroupsData, error: groupsError } = await supabase
     .from("groups")
     .select("id, user_id, name, description, members, created_at")
     .or(`user_id.eq.${userId},members.cs.[{"id":"${userId}"}]`)
     .order("created_at", { ascending: false });
+
+  let groupsData = initialGroupsData;
 
   if (groupsError || !groupsData) {
     const res = await supabase

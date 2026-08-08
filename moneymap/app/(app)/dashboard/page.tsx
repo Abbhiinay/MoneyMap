@@ -39,6 +39,16 @@ export default function DashboardPage() {
   const [category, setCategory] = useState("");
   const [description, setDescription] = useState("");
   const [expenses, setExpenses] = useState<ExpenseItem[]>([]);
+  const [isClient, setIsClient] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    setIsClient(true);
+    const check = () => setIsMobile(window.innerWidth < 768);
+    check();
+    window.addEventListener("resize", check);
+    return () => window.removeEventListener("resize", check);
+  }, []);
   const [expenseDate, setExpenseDate] = useState(
     () => new Date().toISOString().split("T")[0]
   );
@@ -59,7 +69,7 @@ export default function DashboardPage() {
 
     if (data) {
       setExpenses(
-        data.map((e: any) => ({
+        data.map((e: { id: string; amount: number; category?: string | null; description?: string | null; date?: string | null; created_at?: string }) => ({
           id: e.id,
           amount: Number(e.amount),
           category: e.category ?? "",
@@ -300,7 +310,11 @@ export default function DashboardPage() {
 
   <div className="mt-4 flex flex-col gap-4 xl:flex-row xl:items-center">
     <div className="h-72 w-full min-w-0 xl:h-64">
-      {categoryData.length === 0 ? (
+      {!isClient ? (
+        <div className="h-64 w-full bg-slate-100/50 dark:bg-slate-900/40 rounded-2xl animate-pulse flex items-center justify-center text-slate-400 text-xs">
+          Loading charts...
+        </div>
+      ) : categoryData.length === 0 ? (
         <p className="text-sm text-slate-500 dark:text-slate-400">
           No expense data yet.
         </p>
@@ -318,7 +332,7 @@ export default function DashboardPage() {
               animationDuration={300}
               activeShape={{ scale: 1.05, strokeWidth: 2, stroke: "rgba(255,255,255,0.8)", filter: "drop-shadow(0 2px 4px rgba(0,0,0,0.1))" }}
             >
-              {categoryData.map((entry: any, index: number) => (
+              {categoryData.map((entry: CategoryDatum, index: number) => (
                 <Cell
                   key={`cell-${index}`}
                   fill={COLORS[index % COLORS.length]}
@@ -350,9 +364,9 @@ export default function DashboardPage() {
               }}
             />
             <Legend
-              layout="vertical"
-              align="right"
-              verticalAlign="middle"
+              layout={isMobile ? "horizontal" : "vertical"}
+              align={isMobile ? "center" : "right"}
+              verticalAlign={isMobile ? "bottom" : "middle"}
               formatter={(value: string, entry: { color?: string; payload?: { value?: number } }) => (
                 <span className="text-xs text-slate-700 dark:text-slate-200">
                   <span

@@ -1,12 +1,10 @@
- "use client";
+"use client";
 
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { useUserCurrency } from "@/lib/useUserCurrency";
 import { TransactionDetailsPanel } from "@/app/components/TransactionDetailsPanel";
 import {
-  Bar,
-  BarChart,
   CartesianGrid,
   Legend,
   Line,
@@ -26,20 +24,7 @@ type Expense = {
   created_at?: string;
 };
 
-// Example transaction dataset (for reference / testing shape)
-// Matches: { id, amount, category, date: "YYYY-MM-DD" }
-const exampleTransactions = [
-  { id: 1, amount: 200, category: "Food", date: "2026-03-01" },
-  { id: 2, amount: 0, category: "Food", date: "2026-03-02" },
-  { id: 3, amount: 450, category: "Transport", date: "2026-03-03" },
-  { id: 4, amount: 120, category: "Shopping", date: "2026-03-04" },
-];
 
-type MonthlyPoint = {
-  key: string;
-  month: string;
-  total: number;
-};
 
 type YearlyPoint = {
   monthIndex: number;
@@ -54,6 +39,89 @@ type DailyPoint = {
   date: string;
 };
 
+const pad2 = (n: number) => String(n).padStart(2, "0");
+
+const parseExpenseDate = (exp: Expense) => {
+  const rawDate = exp.date ?? exp.created_at;
+  if (!rawDate) return null;
+  const d = new Date(rawDate);
+  if (Number.isNaN(d.getTime())) return null;
+  return d;
+};
+
+const formatMonthLabel = (yyyyMm: string) => {
+  const [y, m] = yyyyMm.split("-").map(Number);
+  const d = new Date(y, (m ?? 1) - 1, 1);
+  return d.toLocaleString("default", { month: "long", year: "numeric" });
+};
+
+/**
+ * Returns all months that contain transactions
+ * Output is "YYYY-MM" sorted newest -> oldest
+ */
+function getAvailableMonths(transactions: Expense[]) {
+  const months = new Set<string>();
+  transactions.forEach((tx) => {
+    const d = parseExpenseDate(tx);
+    if (!d) return;
+    const key = `${d.getFullYear()}-${pad2(d.getMonth() + 1)}`;
+    months.add(key);
+  });
+  return Array.from(months).sort((a, b) => (a < b ? 1 : -1));
+}
+
+/**
+ * Returns an array of length = days in the given month, containing total spend per day.
+ * Month is "YYYY-MM".
+ */
+function getDailySpendingForMonth(transactions: Expense[], month: string) {
+  const [year, monthNum] = month.split("-").map(Number);
+  const y = year;
+  const mIndex = (monthNum ?? 1) - 1;
+  const daysInMonth = new Date(y, mIndex + 1, 0).getDate();
+  const totals = Array.from({ length: daysInMonth }, () => 0);
+
+  transactions.forEach((tx) => {
+    const d = parseExpenseDate(tx);
+    if (!d) return;
+    if (d.getFullYear() !== y || d.getMonth() !== mIndex) return;
+    const dayIndex = d.getDate() - 1;
+    totals[dayIndex] += Number(tx.amount) || 0;
+  });
+
+  return totals;
+}
+
+/**
+ * Returns per-category daily arrays for a given month.
+ * Month is "YYYY-MM".
+ */
+function getCategoryTrendForMonth(transactions: Expense[], month: string) {
+  const [year, monthNum] = month.split("-").map(Number);
+  const y = year;
+  const mIndex = (monthNum ?? 1) - 1;
+  const daysInMonth = new Date(y, mIndex + 1, 0).getDate();
+
+  const byCategory: Record<string, number[]> = {};
+
+  transactions.forEach((tx) => {
+    const d = parseExpenseDate(tx);
+    if (!d) return;
+    if (d.getFullYear() !== y || d.getMonth() !== mIndex) return;
+
+    const cat = tx.category || "Uncategorized";
+    if (!byCategory[cat]) {
+      byCategory[cat] = Array.from({ length: daysInMonth }, () => 0);
+    }
+    byCategory[cat][d.getDate() - 1] += Number(tx.amount) || 0;
+  });
+
+  // Ensure stable ordering when iterating keys
+  return Object.fromEntries(
+    Object.entries(byCategory).sort(([a], [b]) => a.localeCompare(b))
+  );
+}
+
 export default function AnalyticsPage() {
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [selectedYear, setSelectedYear] = useState<number>(
@@ -64,6 +132,11 @@ export default function AnalyticsPage() {
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
   });
   const { currency, loading: currencyLoading } = useUserCurrency();
+  const [isClient, setIsClient] = useState(false);
+
+  useEffect(() => {
+    setIsClient(true);
+  }, []);
 
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [selectedTransactions, setSelectedTransactions] = useState<Expense[]>(
@@ -79,12 +152,12 @@ export default function AnalyticsPage() {
 
       if (data) {
         setExpenses(
-          data.map((exp: any) => ({
+          data.map((exp: { id: string; amount: number; category?: string | null; description?: string | null; date?: string | null; created_at?: string }) => ({
             id: exp.id,
             amount: Number(exp.amount),
-            category: exp.category,
-            description: exp.description,
-            date: exp.date,
+            category: exp.category ?? undefined,
+            description: exp.description ?? undefined,
+            date: exp.date ?? undefined,
             created_at: exp.created_at,
           }))
         );
@@ -101,121 +174,7 @@ export default function AnalyticsPage() {
       maximumFractionDigits: 0,
     }).format(value);
 
-  const pad2 = (n: number) => String(n).padStart(2, "0");
 
-  const parseExpenseDate = (exp: Expense) => {
-    const rawDate = exp.date ?? exp.created_at;
-    if (!rawDate) return null;
-    const d = new Date(rawDate);
-    if (Number.isNaN(d.getTime())) return null;
-    return d;
-  };
-
-  const formatMonthLabel = (yyyyMm: string) => {
-    const [y, m] = yyyyMm.split("-").map(Number);
-    const d = new Date(y, (m ?? 1) - 1, 1);
-    return d.toLocaleString("default", { month: "long", year: "numeric" });
-  };
-
-  /**
-   * Returns all months that contain transactions
-   * Output is "YYYY-MM" sorted newest -> oldest
-   */
-  function getAvailableMonths(transactions: Expense[]) {
-    const months = new Set<string>();
-    transactions.forEach((tx) => {
-      const d = parseExpenseDate(tx);
-      if (!d) return;
-      const key = `${d.getFullYear()}-${pad2(d.getMonth() + 1)}`;
-      months.add(key);
-    });
-    return Array.from(months).sort((a, b) => (a < b ? 1 : -1));
-  }
-
-  /**
-   * Returns an array of length = days in the given month, containing total spend per day.
-   * Month is "YYYY-MM".
-   */
-  function getDailySpendingForMonth(transactions: Expense[], month: string) {
-    const [year, monthNum] = month.split("-").map(Number);
-    const y = year;
-    const mIndex = (monthNum ?? 1) - 1;
-    const daysInMonth = new Date(y, mIndex + 1, 0).getDate();
-    const totals = Array.from({ length: daysInMonth }, () => 0);
-
-    transactions.forEach((tx) => {
-      const d = parseExpenseDate(tx);
-      if (!d) return;
-      if (d.getFullYear() !== y || d.getMonth() !== mIndex) return;
-      const dayIndex = d.getDate() - 1;
-      totals[dayIndex] += Number(tx.amount) || 0;
-    });
-
-    return totals;
-  }
-
-  /**
-   * Returns per-category daily arrays for a given month.
-   * Month is "YYYY-MM".
-   */
-  function getCategoryTrendForMonth(transactions: Expense[], month: string) {
-    const [year, monthNum] = month.split("-").map(Number);
-    const y = year;
-    const mIndex = (monthNum ?? 1) - 1;
-    const daysInMonth = new Date(y, mIndex + 1, 0).getDate();
-
-    const byCategory: Record<string, number[]> = {};
-
-    transactions.forEach((tx) => {
-      const d = parseExpenseDate(tx);
-      if (!d) return;
-      if (d.getFullYear() !== y || d.getMonth() !== mIndex) return;
-
-      const cat = tx.category || "Uncategorized";
-      if (!byCategory[cat]) {
-        byCategory[cat] = Array.from({ length: daysInMonth }, () => 0);
-      }
-      byCategory[cat][d.getDate() - 1] += Number(tx.amount) || 0;
-    });
-
-    // Ensure stable ordering when iterating keys
-    return Object.fromEntries(
-      Object.entries(byCategory).sort(([a], [b]) => a.localeCompare(b))
-    );
-  }
-
-  // Last 12 months (existing bar chart)
-  const monthlyData: MonthlyPoint[] = useMemo(() => {
-    const now = new Date();
-
-    const months: MonthlyPoint[] = [];
-    for (let i = 11; i >= 0; i--) {
-      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-      const key = `${d.getFullYear()}-${d.getMonth()}`;
-      months.push({
-        key,
-        month: d.toLocaleString("default", { month: "short" }),
-        total: 0,
-      });
-    }
-
-    const bucketMap = new Map<string, MonthlyPoint>(
-      months.map((m) => [m.key, m])
-    );
-
-    expenses.forEach((exp) => {
-      const expDate = parseExpenseDate(exp);
-      if (!expDate) return;
-
-      const key = `${expDate.getFullYear()}-${expDate.getMonth()}`;
-      const bucket = bucketMap.get(key);
-      if (bucket) {
-        bucket.total += Number(exp.amount);
-      }
-    });
-
-    return months;
-  }, [expenses]);
 
   // Available years from expense data
   const availableYears = useMemo(() => {
@@ -259,7 +218,7 @@ export default function AnalyticsPage() {
     return months;
   }, [expenses, selectedYear]);
 
-  const hasData = monthlyData.some((m) => m.total > 0);
+
 
   // Month dropdown + daily/category trends (driven by selectedMonth)
   const availableMonths = useMemo(() => {
@@ -460,7 +419,11 @@ export default function AnalyticsPage() {
           </div>
 
           <div className="h-64">
-            {expenses.length === 0 ? (
+            {!isClient ? (
+              <div className="flex h-full items-center justify-center rounded-xl bg-slate-100/50 dark:bg-slate-900/40 text-sm text-slate-400 animate-pulse">
+                Loading chart...
+              </div>
+            ) : expenses.length === 0 ? (
               <div className="flex h-full items-center justify-center rounded-xl bg-slate-100 text-sm text-slate-500 transition-colors dark:bg-slate-900/80 dark:text-slate-400">
                 No spending data yet.
               </div>
@@ -569,7 +532,11 @@ export default function AnalyticsPage() {
             </div>
 
             <div className="mt-4 h-64">
-              {expenses.length === 0 ? (
+              {!isClient ? (
+                <div className="flex h-full items-center justify-center rounded-xl bg-slate-100/50 dark:bg-slate-900/40 text-sm text-slate-400 animate-pulse">
+                  Loading chart...
+                </div>
+              ) : expenses.length === 0 ? (
                 <div className="flex h-full items-center justify-center rounded-xl bg-slate-100 text-sm text-slate-500 transition-colors dark:bg-slate-900/80 dark:text-slate-400">
                   No spending data yet.
                 </div>
@@ -654,8 +621,13 @@ export default function AnalyticsPage() {
               </select>
             </div>
             <div className="mt-4 h-48">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart
+              {!isClient ? (
+                <div className="flex h-full items-center justify-center rounded-xl bg-slate-100/50 dark:bg-slate-900/40 text-sm text-slate-400 animate-pulse">
+                  Loading chart...
+                </div>
+              ) : (
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart
                   data={yearlyData}
                   margin={{ top: 10, right: 8, left: -20, bottom: 0 }}
                 >
@@ -699,7 +671,8 @@ export default function AnalyticsPage() {
                   />
                 </LineChart>
               </ResponsiveContainer>
-            </div>
+            )}
+          </div>
           </div>
 
         </div>

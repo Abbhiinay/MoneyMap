@@ -150,7 +150,7 @@ export async function GET(request: NextRequest) {
           .in("email_id", messageIds);
 
         const existingEmailIds = new Set(
-          (existingRows ?? []).map((r: any) => r.email_id as string)
+          (existingRows ?? []).map((r: { email_id: string }) => r.email_id)
         );
 
         const newIds = messageIds.filter((id) => !existingEmailIds.has(id));
@@ -165,7 +165,13 @@ export async function GET(request: NextRequest) {
 
           if (!msgRes.ok) continue;
 
-          const msgJson = (await msgRes.json()) as any;
+          const msgJson = (await msgRes.json()) as {
+            snippet?: string;
+            internalDate?: string;
+            payload?: {
+              headers?: { name: string; value: string }[];
+            };
+          };
           const snippet: string = msgJson.snippet ?? "";
           const internalDateMs = Number(msgJson.internalDate ?? 0);
           const internalDate = new Date(internalDateMs || Date.now());
@@ -176,7 +182,7 @@ export async function GET(request: NextRequest) {
 
           let subject = "";
           let dateHeader = "";
-          const headers: any[] = msgJson.payload?.headers ?? [];
+          const headers = msgJson.payload?.headers ?? [];
           for (const h of headers) {
             if (h.name === "Subject") subject = h.value ?? subject;
             if (h.name === "Date") dateHeader = h.value ?? dateHeader;
