@@ -1,0 +1,23 @@
+# Dependencies
+node_modules/
+
+# Environment Variables & Secrets
+.env
+.env.*
+*.env
+.env.local
+
+# Operating System & IDE Files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Documentation, Interview Guides & UML Designs
+PROJECTS_INTERVIEW_GUIDE.md
+SRS.md
+moneymap_interaction_sequence_design.md
+moneymap_lab6_uml_design.md
+ufp_analysis_report.md
+*.md
+!README.md
