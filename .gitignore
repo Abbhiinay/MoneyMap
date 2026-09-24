@@ -22,3 +22,4 @@ moneymap_lab6_uml_design.md
 ufp_analysis_report.md
 *.md
 !README.md
+!AWS_DEPLOYMENT_INTERVIEW_GUIDE.md
