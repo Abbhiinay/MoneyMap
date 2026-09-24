@@ -6,6 +6,7 @@ node_modules/
 .env.*
 *.env
 .env.local
+!.env.example
 
 # Operating System & IDE Files
 .DS_Store
