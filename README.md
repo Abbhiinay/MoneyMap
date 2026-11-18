@@ -34,6 +34,8 @@ Managing personal budgets while coordinating shared expenses across roommates, f
 
 In addition to manual expense tracking and group debt balancing, MoneyMap features **automated transaction ingestion via Gmail**, reading digital transaction receipts (e.g., Swiggy, Zomato, Uber, Amazon) and queuing them for 1-click confirmation or dismissal.
 
+Project Live URL: moneymap-abbhiinay.duckdns.org
+
 ---
 
 ## Key Features
