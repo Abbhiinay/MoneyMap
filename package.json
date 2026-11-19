@@ -1,0 +1,15 @@
+{
+  "name": "moneymap-workspace",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --no-warnings --test --experimental-strip-types tests/*.test.ts",
+    "test:suite1": "node --no-warnings --test --experimental-strip-types tests/personal-expenses.test.ts",
+    "test:suite2": "node --no-warnings --test --experimental-strip-types tests/group-settlements.test.ts",
+    "test:suite3": "node --no-warnings --test --experimental-strip-types tests/email-detection.test.ts",
+    "test:suite4": "node --no-warnings --test --experimental-strip-types tests/analytics-engine.test.ts",
+    "test:suite5": "node --no-warnings --test --experimental-strip-types tests/invitations-validation.test.ts",
+    "test:suite6": "node --no-warnings --test --experimental-strip-types tests/api-contracts.test.ts"
+  }
+}

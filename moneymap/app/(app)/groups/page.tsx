@@ -16,6 +16,13 @@ import {
 } from "@/lib/groupsDb";
 import { createGroupInvitations } from "@/lib/invitationsDb";
 import { supabase } from "@/lib/supabaseClient";
+import {
+  computeNetDebtsFromExpenses,
+  applySettlements,
+  computeBalanceStatusForUser,
+  type DebtEdge,
+  type SettledPayment,
+} from "@/lib/splitUtils";
 
 const CURRENT_USER_ID = "you";
 
@@ -191,89 +198,6 @@ type GroupCardProps = {
   balanceStatus: BalanceStatus;
   currencyCode: string;
 };
-
-type DebtEdge = {
-  fromId: string;
-  toId: string;
-  amount: number;
-};
-
-type SettledPayment = {
-  id?: string;
-  groupId: string;
-  fromId: string;
-  toId: string;
-  amount: number;
-};
-
-function computeNetDebtsFromExpenses(group: Group): DebtEdge[] {
-  const net = new Map<string, number>();
-  const key = (a: string, b: string) => `${a}|${b}`;
-
-  for (const exp of group.expenses) {
-    for (const s of exp.shares) {
-      if (s.memberId === exp.payerId) continue;
-      const k = key(s.memberId, exp.payerId);
-      net.set(k, (net.get(k) ?? 0) + s.amount);
-      const rev = key(exp.payerId, s.memberId);
-      net.set(rev, (net.get(rev) ?? 0) - s.amount);
-    }
-  }
-
-  const out: DebtEdge[] = [];
-  net.forEach((amount, k) => {
-    if (amount <= 0) return;
-    const [fromId, toId] = k.split("|");
-    out.push({ fromId, toId, amount });
-  });
-  return out;
-}
-
-function applySettlements(
-  edges: DebtEdge[],
-  groupId: string,
-  settled: SettledPayment[]
-): DebtEdge[] {
-  const byKey = new Map<string, number>();
-  for (const e of edges) {
-    const k = `${e.fromId}|${e.toId}`;
-    byKey.set(k, (byKey.get(k) ?? 0) + e.amount);
-  }
-  for (const s of settled.filter((x) => x.groupId === groupId)) {
-    const k = `${s.fromId}|${s.toId}`;
-    const cur = byKey.get(k) ?? 0;
-    byKey.set(k, Math.max(0, cur - s.amount));
-  }
-  const out: DebtEdge[] = [];
-  byKey.forEach((amount, k) => {
-    if (amount > 0) {
-      const [fromId, toId] = k.split("|");
-      out.push({ fromId, toId, amount });
-    }
-  });
-  return out;
-}
-
-function computeBalanceStatusForUser(
-  group: Group,
-  effectiveDebts: DebtEdge[],
-  currencyCode: string,
-  currentUserId: string
-): BalanceStatus {
-  let owedToYou = 0;
-  let youOwe = 0;
-  const activeUserId = group.userId === currentUserId ? "you" : currentUserId;
-  for (const e of effectiveDebts) {
-    if (e.toId === activeUserId) owedToYou += e.amount;
-    if (e.fromId === activeUserId) youOwe += e.amount;
-  }
-  const net = owedToYou - youOwe;
-  if (net > 0)
-    return { type: "owedToYou", amount: net, currency: currencyCode };
-  if (net < 0)
-    return { type: "youOwe", amount: -net, currency: currencyCode };
-  return { type: "settled", amount: 0, currency: currencyCode };
-}
 
 function NewGroupModal({ open, onClose, onCreate }: NewGroupModalProps) {
   const [name, setName] = useState("");

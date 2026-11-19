@@ -39,15 +39,42 @@ declare global {
 
 const DEFAULT_CURRENCY = "USD";
 
-async function ensureProfile(userId: string) {
-  const { error } = await supabase
-    .from("profiles")
-    .upsert(
-      { id: userId, currency: DEFAULT_CURRENCY },
-      { onConflict: "id", ignoreDuplicates: true }
-    );
+function getErrorMessage(err: unknown, fallback: string): string {
+  if (!err) return fallback;
+  if (typeof err === "string") return err;
+  if (typeof err === "object") {
+    const record = err as Record<string, unknown>;
+    if (typeof record.message === "string" && record.message.trim()) {
+      return record.message;
+    }
+    if (typeof record.error_description === "string" && record.error_description.trim()) {
+      return record.error_description;
+    }
+    if (typeof record.msg === "string" && record.msg.trim()) {
+      return record.msg;
+    }
+  }
+  if (err instanceof Error && err.message) {
+    return err.message;
+  }
+  return fallback;
+}
 
-  if (error) throw error;
+async function ensureProfile(userId: string) {
+  try {
+    const { error } = await supabase
+      .from("profiles")
+      .upsert(
+        { id: userId, currency: DEFAULT_CURRENCY },
+        { onConflict: "id", ignoreDuplicates: true }
+      );
+
+    if (error) {
+      console.warn("ensureProfile warning:", error.message || error);
+    }
+  } catch (err) {
+    console.warn("Failed to ensure profile:", err);
+  }
 }
 
 function getRedirectUrl() {
@@ -154,7 +181,7 @@ export default function AuthPage() {
 
               router.replace("/dashboard");
             } catch (err) {
-              setError(err instanceof Error ? err.message : "Google sign-in failed.");
+              setError(getErrorMessage(err, "Google sign-in failed."));
             } finally {
               setGoogleLoading(false);
             }
@@ -169,7 +196,7 @@ export default function AuthPage() {
         });
       } catch (err) {
         if (!cancelled) {
-          setError(err instanceof Error ? err.message : "Unable to initialize Google sign-in.");
+          setError(getErrorMessage(err, "Unable to initialize Google sign-in."));
         }
       }
     };
@@ -203,14 +230,16 @@ export default function AuthPage() {
 
         if (signUpError) throw signUpError;
 
-        if (data.user) {
+        // Only upsert profile if an authenticated session exists (e.g. email confirmation disabled).
+        // If email confirmation is enabled, data.session is null and RLS will block unauthenticated writes.
+        if (data.session && data.user) {
           await ensureProfile(data.user.id);
         }
 
         setMessage(
           data.session
             ? "Account created. Redirecting..."
-            : "Check your email to confirm your signup."
+            : "Account created! Please check your email inbox to confirm your registration."
         );
 
         if (data.session) {
@@ -232,7 +261,7 @@ export default function AuthPage() {
 
       router.replace("/dashboard");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Authentication failed. Please try again.");
+      setError(getErrorMessage(err, "Authentication failed. Please try again."));
     } finally {
       setLoading(false);
     }

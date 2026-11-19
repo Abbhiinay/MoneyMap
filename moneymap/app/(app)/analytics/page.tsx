@@ -5,6 +5,14 @@ import { supabase } from "@/lib/supabaseClient";
 import { useUserCurrency } from "@/lib/useUserCurrency";
 import { TransactionDetailsPanel } from "@/app/components/TransactionDetailsPanel";
 import {
+  pad2,
+  parseExpenseDate,
+  formatMonthLabel,
+  getAvailableMonths,
+  getDailySpendingForMonth,
+  getCategoryTrendForMonth,
+} from "@/lib/analyticsUtils";
+import {
   CartesianGrid,
   Legend,
   Line,
@@ -38,76 +46,6 @@ type DailyPoint = {
   isoDate: string;
   date: string;
 };
-
-const pad2 = (n: number) => String(n).padStart(2, "0");
-
-const parseExpenseDate = (exp: Expense) => {
-  const rawDate = exp.date ?? exp.created_at;
-  if (!rawDate) return null;
-  const d = new Date(rawDate);
-  if (Number.isNaN(d.getTime())) return null;
-  return d;
-};
-
-const formatMonthLabel = (yyyyMm: string) => {
-  const [y, m] = yyyyMm.split("-").map(Number);
-  const d = new Date(y, (m ?? 1) - 1, 1);
-  return d.toLocaleString("default", { month: "long", year: "numeric" });
-};
-
-function getAvailableMonths(transactions: Expense[]) {
-  const months = new Set<string>();
-  transactions.forEach((tx) => {
-    const d = parseExpenseDate(tx);
-    if (!d) return;
-    const key = `${d.getFullYear()}-${pad2(d.getMonth() + 1)}`;
-    months.add(key);
-  });
-  return Array.from(months).sort((a, b) => (a < b ? 1 : -1));
-}
-
-function getDailySpendingForMonth(transactions: Expense[], month: string) {
-  const [year, monthNum] = month.split("-").map(Number);
-  const y = year;
-  const mIndex = (monthNum ?? 1) - 1;
-  const daysInMonth = new Date(y, mIndex + 1, 0).getDate();
-  const totals = Array.from({ length: daysInMonth }, () => 0);
-
-  transactions.forEach((tx) => {
-    const d = parseExpenseDate(tx);
-    if (!d) return;
-    if (d.getFullYear() !== y || d.getMonth() !== mIndex) return;
-    const dayIndex = d.getDate() - 1;
-    totals[dayIndex] += Number(tx.amount) || 0;
-  });
-
-  return totals;
-}
-
-function getCategoryTrendForMonth(transactions: Expense[], month: string) {
-  const [year, monthNum] = month.split("-").map(Number);
-  const y = year;
-  const mIndex = (monthNum ?? 1) - 1;
-  const daysInMonth = new Date(y, mIndex + 1, 0).getDate();
-
-  const byCategory: Record<string, number[]> = {};
-
-  transactions.forEach((tx) => {
-    const d = parseExpenseDate(tx);
-    if (!d) return;
-    if (d.getFullYear() !== y || d.getMonth() !== mIndex) return;
-
-    const cat = tx.category || "Uncategorized";
-    if (!byCategory[cat]) {
-      byCategory[cat] = Array.from({ length: daysInMonth }, () => 0);
-    }
-    byCategory[cat][d.getDate() - 1] += Number(tx.amount) || 0;
-  });
-
-  return Object.fromEntries(
-    Object.entries(byCategory).sort(([a], [b]) => a.localeCompare(b))
-  );
-}
 
 export default function AnalyticsPage() {
   const [expenses, setExpenses] = useState<Expense[]>([]);

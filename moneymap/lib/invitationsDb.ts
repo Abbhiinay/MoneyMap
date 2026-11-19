@@ -1,5 +1,6 @@
 import { supabase } from "./supabaseClient";
 import { joinGroup } from "./groupsDb";
+import { filterValidInvitationEmails } from "./invitationUtils";
 
 export type DbInvitation = {
   id: string;
@@ -42,9 +43,7 @@ export async function createGroupInvitations(
   const inviterEmail = inviter.email?.trim().toLowerCase() || "";
   
   // Filter strictly valid emails that are NOT the inviter's own email
-  const validEmails = membersInput
-    .map((e) => e.trim().toLowerCase())
-    .filter((e) => e.includes("@") && e.includes(".") && e !== inviterEmail);
+  const validEmails = filterValidInvitationEmails(membersInput, inviterEmail);
 
   if (validEmails.length === 0) return;
 

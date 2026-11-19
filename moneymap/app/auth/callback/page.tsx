@@ -6,6 +6,27 @@ import { supabase } from "@/lib/supabaseClient";
 
 const DEFAULT_CURRENCY = "USD";
 
+function getErrorMessage(err: unknown, fallback: string): string {
+  if (!err) return fallback;
+  if (typeof err === "string") return err;
+  if (typeof err === "object") {
+    const record = err as Record<string, unknown>;
+    if (typeof record.message === "string" && record.message.trim()) {
+      return record.message;
+    }
+    if (typeof record.error_description === "string" && record.error_description.trim()) {
+      return record.error_description;
+    }
+    if (typeof record.msg === "string" && record.msg.trim()) {
+      return record.msg;
+    }
+  }
+  if (err instanceof Error && err.message) {
+    return err.message;
+  }
+  return fallback;
+}
+
 function AuthCallbackContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -37,18 +58,25 @@ function AuthCallbackContent() {
         if (userError) throw userError;
         if (!user) throw new Error("Google sign-in did not return a user session.");
 
-        const { error: profileError } = await supabase
-          .from("profiles")
-          .upsert(
-            { id: user.id, currency: DEFAULT_CURRENCY },
-            { onConflict: "id", ignoreDuplicates: true }
-          );
+        try {
+          const { error: profileError } = await supabase
+            .from("profiles")
+            .upsert(
+              { id: user.id, currency: DEFAULT_CURRENCY },
+              { onConflict: "id", ignoreDuplicates: true }
+            );
 
-        if (profileError) throw profileError;
+          if (profileError) {
+            console.warn("Could not ensure profile on callback:", profileError.message || profileError);
+          }
+        } catch (profileErr) {
+          console.warn("ensureProfile warning:", profileErr);
+        }
+
         if (mounted) router.replace("/dashboard");
       } catch (err) {
         if (mounted) {
-          setError(err instanceof Error ? err.message : "Unable to complete sign-in.");
+          setError(getErrorMessage(err, "Unable to complete sign-in."));
         }
       }
     };

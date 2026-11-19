@@ -1,5 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireUser } from "@/lib/supabaseServer";
+import {
+  istParts,
+  istDateKey,
+  istGmailDateQuery,
+  isSameIstDay,
+  predictCategory,
+  extractAmountAndMerchant,
+} from "@/lib/emailDetectionUtils";
 
 type DetectedRow = {
   id: string;
@@ -25,82 +33,6 @@ type DetectedTransactionDto = {
   date: string;
 };
 
-// "Today" is computed in India Standard Time (UTC+5:30) rather than the
-// server's runtime timezone, since a serverless host is typically UTC and
-// that misclassifies transactions near midnight IST.
-const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
-
-function istParts(d: Date) {
-  const shifted = new Date(d.getTime() + IST_OFFSET_MS);
-  return {
-    year: shifted.getUTCFullYear(),
-    month: shifted.getUTCMonth(),
-    day: shifted.getUTCDate(),
-  };
-}
-
-function istDateKey(d: Date) {
-  const { year, month, day } = istParts(d);
-  return `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-}
-
-function istGmailDateQuery(d: Date) {
-  const { year, month, day } = istParts(d);
-  return `${year}/${String(month + 1).padStart(2, "0")}/${String(day).padStart(2, "0")}`;
-}
-
-function isSameIstDay(a: Date, b: Date) {
-  const pa = istParts(a);
-  const pb = istParts(b);
-  return pa.year === pb.year && pa.month === pb.month && pa.day === pb.day;
-}
-
-function predictCategory(merchant: string): string {
-  const name = merchant.toLowerCase();
-  if (name.includes("swiggy") || name.includes("zomato")) return "Food";
-  if (name.includes("uber") || name.includes("ola")) return "Transport";
-  if (name.includes("amazon") || name.includes("flipkart")) return "Shopping";
-  if (name.includes("netflix") || name.includes("spotify") || name.includes("hotstar")) {
-    return "Subscription";
-  }
-  return "Uncategorized";
-}
-
-function extractAmountAndMerchant(text: string): {
-  amount: number | null;
-  merchant: string | null;
-} {
-  const cleaned = text.replace(/\s+/g, " ");
-
-  const amountMatch =
-    cleaned.match(/(?:₹|rs\.?|inr)\s*([\d,]+(?:\.\d{1,2})?)/i) ??
-    cleaned.match(/([\d,]+(?:\.\d{1,2})?)\s*(?:INR|Rs\.?)/i);
-
-  const amount = amountMatch
-    ? Number(amountMatch[1].replace(/,/g, ""))
-    : null;
-
-  let merchant: string | null = null;
-
-  const toMatch = cleaned.match(/\bto\s+([A-Za-z][A-Za-z0-9 &.-]{2,40})/i);
-  if (toMatch) {
-    merchant = toMatch[1].trim();
-  } else {
-    const atMatch = cleaned.match(
-      /\b(?:at|from)\s+([A-Za-z][A-Za-z0-9 &.-]{2,40})/i
-    );
-    if (atMatch) {
-      merchant = atMatch[1].trim();
-    }
-  }
-
-  if (merchant) {
-    merchant = merchant.replace(/[^A-Za-z0-9 &.-]/g, "").trim();
-  }
-
-  return { amount, merchant: merchant || null };
-}
-
 export async function GET(request: NextRequest) {
   const { supabase, user, error: authError } = await requireUser(request);
 
@@ -116,7 +48,35 @@ export async function GET(request: NextRequest) {
   if (gmailAccessToken) {
     try {
       const now = new Date();
-      const keywords = ["debited", "credited", "spent", "paid", "UPI", "transaction", "payment"];
+      const keywords = [
+        "debited",
+        "credited",
+        "spent",
+        "paid",
+        "payment",
+        "transaction",
+        "transferred",
+        "withdrawn",
+        "charged",
+        "charge",
+        "UPI",
+        "NEFT",
+        "IMPS",
+        "RTGS",
+        "wallet",
+        "Paytm",
+        "PhonePe",
+        "GPay",
+        "Razorpay",
+        "Cred",
+        "receipt",
+        "invoice",
+        "purchase",
+        "bill",
+        "statement",
+        "auto-debit",
+        "e-mandate",
+      ];
       const query = `after:${istGmailDateQuery(now)} (${keywords.join(" OR ")})`;
 
       const listRes = await fetch(
