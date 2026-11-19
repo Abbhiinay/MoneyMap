@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireUser } from "@/lib/supabaseServer";
+import { validateExpense } from "@/lib/expenseValidationUtils";
 
 export async function POST(request: NextRequest) {
   const { supabase, user, error: authError } = await requireUser(request);
@@ -53,12 +54,26 @@ export async function POST(request: NextRequest) {
 
   const date = detected.date ?? new Date().toISOString().slice(0, 10);
 
-  const insertPayload = {
-    user_id: user.id,
-    amount: Number(detected.amount),
+  const validation = validateExpense({
+    amount: detected.amount,
     category,
     description,
     date,
+  });
+
+  if (!validation.isValid || !validation.sanitized) {
+    return NextResponse.json(
+      { error: validation.errors[0] || "Invalid transaction details" },
+      { status: 400 }
+    );
+  }
+
+  const insertPayload = {
+    user_id: user.id,
+    amount: validation.sanitized.amount,
+    category: validation.sanitized.category,
+    description: validation.sanitized.description,
+    date: validation.sanitized.date,
   };
 
   const { data: inserted, error: insertError } = await supabase

@@ -5,6 +5,7 @@ import { supabase, getSupabaseAuthHeaders } from "@/lib/supabaseClient";
 import { useUserCurrency } from "@/lib/useUserCurrency";
 import { categories } from "@/data/categories";
 import { EditExpenseModal } from "@/app/components/EditExpenseModal";
+import { validateExpense } from "@/lib/expenseValidationUtils";
 import {
   PieChart,
   Pie,
@@ -38,6 +39,7 @@ export default function DashboardPage() {
   const [amount, setAmount] = useState("");
   const [category, setCategory] = useState("");
   const [description, setDescription] = useState("");
+  const [addExpenseError, setAddExpenseError] = useState<string | null>(null);
   const [expenses, setExpenses] = useState<ExpenseItem[]>([]);
   const [isClient, setIsClient] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
@@ -107,13 +109,20 @@ export default function DashboardPage() {
     date: string;
   }) => {
     if (!editingTransaction) return;
+
+    const validation = validateExpense(payload);
+    if (!validation.isValid || !validation.sanitized) {
+      alert(validation.errors[0] || "Amount must be a positive number greater than 0");
+      return;
+    }
+
     await supabase
       .from("expenses")
       .update({
-        amount: payload.amount,
-        category: payload.category,
-        description: payload.description,
-        date: payload.date,
+        amount: validation.sanitized.amount,
+        category: validation.sanitized.category,
+        description: validation.sanitized.description,
+        date: validation.sanitized.date,
       })
       .eq("id", editingTransaction.id);
     setEditingTransaction(null);
@@ -126,25 +135,48 @@ export default function DashboardPage() {
   }, []);
 
   const handleAddExpense = async () => {
+    setAddExpenseError(null);
+
+    const validation = validateExpense({
+      amount,
+      category,
+      description,
+      date: expenseDate,
+    });
+
+    if (!validation.isValid || !validation.sanitized) {
+      setAddExpenseError(validation.errors[0] || "Amount must be a positive number greater than 0");
+      return;
+    }
+
     const {
       data: { user },
     } = await supabase.auth.getUser();
 
-    if (!user) return;
+    if (!user) {
+      setAddExpenseError("User session not found. Please log in again.");
+      return;
+    }
 
-    await supabase.from("expenses").insert([
+    const { error: insertError } = await supabase.from("expenses").insert([
       {
         user_id: user.id,
-        amount: Number(amount),
-        category,
-        description,
-        date: expenseDate,
+        amount: validation.sanitized.amount,
+        category: validation.sanitized.category,
+        description: validation.sanitized.description,
+        date: validation.sanitized.date,
       },
     ]);
+
+    if (insertError) {
+      setAddExpenseError(insertError.message || "Failed to save expense.");
+      return;
+    }
 
     setAmount("");
     setCategory("");
     setDescription("");
+    setAddExpenseError(null);
 
     fetchExpenses();
   };
@@ -231,58 +263,70 @@ export default function DashboardPage() {
 
       {/* Add Expense */}
       <div className="rounded-2xl border border-slate-200/80 bg-white p-4 dark:border-slate-800/80 dark:bg-slate-950/80">
-  <p className="text-xs font-medium text-slate-600 dark:text-slate-400 mb-3">
-    Add Expense
-  </p>
+        <p className="text-xs font-medium text-slate-600 dark:text-slate-400 mb-3">
+          Add Expense
+        </p>
 
-  <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5 xl:items-center">
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5 xl:items-center">
+          <input
+            type="number"
+            min="0.01"
+            step="any"
+            placeholder="Amount"
+            className="rounded-lg border p-2 text-sm dark:bg-slate-900"
+            value={amount}
+            onChange={(e) => {
+              setAmount(e.target.value);
+              if (addExpenseError) setAddExpenseError(null);
+            }}
+          />
 
-    <input
-      type="number"
-      placeholder="Amount"
-      className="rounded-lg border p-2 text-sm dark:bg-slate-900"
-      value={amount}
-      onChange={(e) => setAmount(e.target.value)}
-    />
+          <select
+            className="rounded-lg border p-2 text-sm dark:bg-slate-900"
+            value={category}
+            onChange={(e) => {
+              setCategory(e.target.value);
+              if (addExpenseError) setAddExpenseError(null);
+            }}
+            aria-label="Category"
+          >
+            <option value="">Select Category</option>
+            {categories.map((c) => (
+              <option key={c.name} value={c.name}>
+                {c.icon} {c.name}
+              </option>
+            ))}
+          </select>
 
-    <select
-      className="rounded-lg border p-2 text-sm dark:bg-slate-900"
-      value={category}
-      onChange={(e) => setCategory(e.target.value)}
-      aria-label="Category"
-    >
-      <option value="">Select Category</option>
-      {categories.map((c) => (
-        <option key={c.name} value={c.name}>
-          {c.icon} {c.name}
-        </option>
-      ))}
-    </select>
+          <input
+            type="date"
+            value={expenseDate}
+            onChange={(e) => setExpenseDate(e.target.value)}
+            className="rounded-lg border p-2 text-sm dark:bg-slate-900"
+          />
 
-    <input
-      type="date"
-      value={expenseDate}
-      onChange={(e) => setExpenseDate(e.target.value)}
-      className="rounded-lg border p-2 text-sm dark:bg-slate-900"
-    />
+          <input
+            type="text"
+            placeholder="Description"
+            className="rounded-lg border p-2 text-sm dark:bg-slate-900"
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+          />
 
-    <input
-      type="text"
-      placeholder="Description"
-      className="rounded-lg border p-2 text-sm dark:bg-slate-900"
-      value={description}
-      onChange={(e) => setDescription(e.target.value)}
-    />
+          <button
+            onClick={handleAddExpense}
+            className="rounded-lg bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700"
+          >
+            Add
+          </button>
+        </div>
 
-    <button
-      onClick={handleAddExpense}
-      className="rounded-lg bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700"
-    >
-      Add
-    </button>
-
-  </div>
-</div>
+        {addExpenseError && (
+          <p className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-medium text-red-700 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300">
+            {addExpenseError}
+          </p>
+        )}
+      </div>
       {/* Stat Cards (still placeholder for now) */}
       <div className="grid gap-4 md:grid-cols-3">
         <div className="rounded-2xl border bg-white p-4 dark:bg-slate-950/80">

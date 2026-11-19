@@ -40,6 +40,20 @@ test("Suite 1: Personal Expense Management", async (t) => {
     });
     assert.equal(nanResult.isValid, false);
     assert.ok(nanResult.errors.some((e) => e.includes("positive number")));
+
+    const minus100Result = validateExpense({
+      amount: "-100",
+      category: "Food",
+    });
+    assert.equal(minus100Result.isValid, false);
+    assert.ok(minus100Result.errors.some((e) => e.includes("positive number")));
+
+    const zeroResult = validateExpense({
+      amount: 0,
+      category: "Food",
+    });
+    assert.equal(zeroResult.isValid, false);
+    assert.ok(zeroResult.errors.some((e) => e.includes("positive number")));
   });
 
   await t.test("rejects empty category", () => {

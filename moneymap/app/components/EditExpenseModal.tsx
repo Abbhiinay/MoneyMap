@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { categories } from "@/data/categories";
+import { validateExpense } from "@/lib/expenseValidationUtils";
 
 export type ExpenseForEdit = {
   id: string;
@@ -32,6 +33,7 @@ export function EditExpenseModal({
   const [amount, setAmount] = useState(String(expense.amount));
   const [category, setCategory] = useState(expense.category || "");
   const [description, setDescription] = useState(expense.description || "");
+  const [error, setError] = useState<string | null>(null);
   const [date, setDate] = useState(
     expense.date ? expense.date.slice(0, 10) : new Date().toISOString().slice(0, 10)
   );
@@ -40,6 +42,7 @@ export function EditExpenseModal({
     setAmount(String(expense.amount));
     setCategory(expense.category || "");
     setDescription(expense.description || "");
+    setError(null);
     setDate(
       expense.date ? expense.date.slice(0, 10) : new Date().toISOString().slice(0, 10)
     );
@@ -55,13 +58,22 @@ export function EditExpenseModal({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const num = Number(amount);
-    if (Number.isNaN(num) || num < 0) return;
+    setError(null);
+    const validation = validateExpense({
+      amount,
+      category,
+      description,
+      date,
+    });
+    if (!validation.isValid || !validation.sanitized) {
+      setError(validation.errors[0] || "Amount must be a positive number greater than 0");
+      return;
+    }
     onSave({
-      amount: num,
-      category: category || "Other",
-      description: description.trim(),
-      date: date || new Date().toISOString().slice(0, 10),
+      amount: validation.sanitized.amount,
+      category: validation.sanitized.category,
+      description: validation.sanitized.description,
+      date: validation.sanitized.date,
     });
   };
 
@@ -85,16 +97,25 @@ export function EditExpenseModal({
         </h2>
 
         <form onSubmit={handleSubmit} className="mt-4 space-y-3">
+          {error && (
+            <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-medium text-red-700 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300">
+              {error}
+            </p>
+          )}
+
           <div>
             <label className="mb-1 block text-xs text-slate-600 dark:text-slate-400">
               Amount
             </label>
             <input
               type="number"
-              min="0"
-              step="0.01"
+              min="0.01"
+              step="any"
               value={amount}
-              onChange={(e) => setAmount(e.target.value)}
+              onChange={(e) => {
+                setAmount(e.target.value);
+                if (error) setError(null);
+              }}
               className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
               required
             />

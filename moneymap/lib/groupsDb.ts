@@ -208,6 +208,11 @@ export async function addGroupExpense(
     shares: DbExpenseShare[];
   }
 ): Promise<DbGroupExpense> {
+  const numAmount = Number(payload.amount);
+  if (Number.isNaN(numAmount) || numAmount <= 0) {
+    throw new Error("Amount must be a positive number greater than 0");
+  }
+
   const { data, error } = await supabase
     .from("group_expenses")
     .insert({
@@ -215,7 +220,7 @@ export async function addGroupExpense(
       payer_id: payload.payer_id,
       category: payload.category,
       label: payload.label,
-      amount: payload.amount,
+      amount: numAmount,
       currency: payload.currency,
       shares: payload.shares,
     })

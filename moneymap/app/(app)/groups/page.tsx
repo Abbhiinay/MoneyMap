@@ -619,6 +619,7 @@ function NewExpenseModal({
   );
   const [manualShares, setManualShares] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
+  const [expenseError, setExpenseError] = useState<string | null>(null);
 
   const toggleMember = (memberId: string) => {
     setSelectedMemberIds((prev) =>
@@ -650,9 +651,27 @@ function NewExpenseModal({
     !autoDivide && parsedTotal > 0 && Math.abs(manualTotal - parsedTotal) > 0.01;
 
   const handleCreate = async () => {
-    if (!payerId || !label.trim() || parsedTotal <= 0) return;
-    if (computedShares.length === 0) return;
-    if (isManualMismatch) return;
+    setExpenseError(null);
+    if (!payerId) {
+      setExpenseError("Please select who paid.");
+      return;
+    }
+    if (!label.trim()) {
+      setExpenseError("Description is required.");
+      return;
+    }
+    if (Number.isNaN(parsedTotal) || parsedTotal <= 0) {
+      setExpenseError("Amount must be a positive number greater than 0.");
+      return;
+    }
+    if (computedShares.length === 0) {
+      setExpenseError("Please select at least one member to split with.");
+      return;
+    }
+    if (isManualMismatch) {
+      setExpenseError("The sum of individual shares must match total amount.");
+      return;
+    }
     setSaving(true);
     try {
       const saved = await onCreate({
@@ -668,6 +687,7 @@ function NewExpenseModal({
         setTotalAmount("");
         setAutoDivide(true);
         setManualShares({});
+        setExpenseError(null);
       }
     } finally {
       setSaving(false);
@@ -712,6 +732,12 @@ function NewExpenseModal({
             </button>
           </div>
 
+          {expenseError && (
+            <p className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-medium text-red-700 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300">
+              {expenseError}
+            </p>
+          )}
+
           <div className="mt-4 grid gap-3 text-xs sm:grid-cols-2">
             <div className="space-y-3">
               <div>
@@ -720,7 +746,10 @@ function NewExpenseModal({
                 </label>
                 <select
                   value={payerId}
-                  onChange={(e) => setPayerId(e.target.value)}
+                  onChange={(e) => {
+                    setPayerId(e.target.value);
+                    if (expenseError) setExpenseError(null);
+                  }}
                   disabled={saving}
                   className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-900 outline-none ring-0 transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-50"
                 >
@@ -738,7 +767,10 @@ function NewExpenseModal({
                 </label>
                 <input
                   value={label}
-                  onChange={(e) => setLabel(e.target.value)}
+                  onChange={(e) => {
+                    setLabel(e.target.value);
+                    if (expenseError) setExpenseError(null);
+                  }}
                   disabled={saving}
                   placeholder="Dinner, taxi, hotel, groceries..."
                   className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-900 outline-none ring-0 transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-50"
@@ -766,8 +798,13 @@ function NewExpenseModal({
                 </label>
                 <input
                   type="number"
+                  min="0.01"
+                  step="any"
                   value={totalAmount}
-                  onChange={(e) => setTotalAmount(e.target.value)}
+                  onChange={(e) => {
+                    setTotalAmount(e.target.value);
+                    if (expenseError) setExpenseError(null);
+                  }}
                   disabled={saving}
                   placeholder="0.00"
                   className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-900 outline-none ring-0 transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-50"
